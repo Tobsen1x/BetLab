@@ -1,5 +1,23 @@
-naomitSpielerStats <- subset(spielerStats, !is.na(kickerNote) & !is.na(transPos) & !is.na(fitPrice))
-naomitSpielerStats <- transform(naomitSpielerStats, spielZeit = as.POSIXct(spielZeit))
+attach(spielerStats)
+
+table(kickerPosition, useNA = 'always')
+table(transPos, useNA = 'always')
+# Warum tauchen NAs in transPos auf???
+
+table(einsatz, useNA = 'always')
+
+library(psych)
+describe(subset(spielerStats, select = c(kickerNote, transNote, fitPrice)))
+
+detach(spielerStats)
+
+## Explore NAs
+
+# Spieler ohne Preis
+unique(subset(spielerStats, is.na(fitPrice), c(spielerId))$spielerId)
+
+
+# Sonstige Explorationen
 summary(naomitSpielerStats)
 str(naomitSpielerStats)
 

@@ -57,13 +57,17 @@ spielerStats <- rbind(spielerStats, dbGetQuery(con, auswStartelfStatsQuery))
 spielerStats <- rbind(spielerStats, dbGetQuery(con, auswBenchStatsQuery))
 
 spielerStats <- transform(spielerStats, liga = as.factor(liga),
-                          spielZeit = strptime(spielZeit, '%Y-%m-%d %H:%M:%S'),
+                          spielZeit = as.POSIXct(strptime(spielZeit, '%Y-%m-%d %H:%M:%S')),
                           kickerPosition = as.factor(kickerPosition),
                           einsatz = as.factor(einsatz),
                           transFormation = as.factor(transFormation),
-                          transPos = as.factor(transPos),
-                          heim = as.factor(heim))
-summary(spielerStats)
+                          transPos = factor(transPos, c("Torwart", "Libero", "Innenverteidiger",
+                                                        "Linker Verteidiger", "Rechter Verteidiger",
+                                                        "Defensives Mittelfeld", "Zentrales Mittelfeld",
+                                                        "Linkes Mittelfeld", "Rechtes Mittelfeld",
+                                                        "Offensives Mittelfeld", "Hängende Spitze",
+                                                        "Mittelstürmer", "Linksaußen", "Rechtsaußen")),
+                          heim = as.logical(as.numeric(heim)))
 
 ## Reading Preise
 preiseQuery <- 'select sp.id as spielerId, preis.informationDate, preis.preis from marktpreis preis
@@ -96,10 +100,12 @@ getFitPrice <- function(spieler, spielZeit) {
     # If no past price is found, the oldest is returned
     priceToReturn <- spielerPreise[nrow(spielerPreise), ]
     print(paste('No past price for player', spieler, 'and game time', spielZeit, 
-                  'is found, so the oldest price is returned:', priceToReturn$preis))
+                'is found, so the oldest price is returned:', priceToReturn$preis))
     return(priceToReturn$preis)
 }
 
 spielerStats <- cbind(spielerStats, fitPrice = mapply(
     getFitPrice, spielerStats$spielerId, as.Date(spielerStats$spielZeit)))
-summary(spielerStats)
+
+naomitSpielerStats <- subset(spielerStats, !is.na(kickerNote) &
+                                 !is.na(transPos) & !is.na(fitPrice))
