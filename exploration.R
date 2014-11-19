@@ -28,7 +28,11 @@ ggplot(naomitSpielerStats, aes(x = heim, y = kickerNote, fill = heim)) +
     facet_wrap(~ transPos)
 
 library(plyr)
-groupedStats <- ddply(naomitSpielerStats, c('transPos', 'heim', 'einsatz'), 
+groupedStats <- ddply(naomitSpielerStats, c('transPos', 'heim'), 
                       summarise, meanNote = mean(kickerNote), sdNote = sd(kickerNote),
                       meanPreis = mean(fitPrice), sdPreis = sd(fitPrice), N = length(fitPrice))
-groupedStats
+head(groupedStats)
+
+# Fitpreis - NOte
+ggplot(naomitSpielerStats, aes(x = fitPrice, y = kickerNote)) +
+    geom_point()
