@@ -8,3 +8,6 @@ stopifnot(subset(spielerStats, spielerId == 108 & spielId == 306)$fitPrice == 55
 # Test getGegnerPreis
 gegnerPreis1 <- getGegnerPreis(1, 1, TRUE, transPos = 'Torwart')
 stopifnot(gegnerPreis1 > 5000000 & gegnerPreis1 < 7000000)
+
+# Test Beta5Form Calculation
+neuerForm <- calcBetaForm(spId = 1, sai = '2013-2014', st = 23, maxPastSpieltage = 5)

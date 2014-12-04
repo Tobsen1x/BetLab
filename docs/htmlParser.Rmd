@@ -1,0 +1,35 @@
+---
+title: "HTML Parser"
+author: "Tobsen1x"
+date: "Sunday, November 30, 2014"
+output: html_document
+---
+
+## Abstract
+This report describes the functionality of the HTML parser. As the data is
+the fundament of all the analysis I keep a close look at the process which
+collects all the data. kicker.de and transfermarkt.de have a continuous
+change in the HTML structure of their sites, so the parsers have to be 
+continously adapted, to ensure consistent and correct information.
+
+# Kicker data
+
+Kicker provides information about games, players and player performances.
+
+## Kader collector
+
+Creates teams, Kader and players. Input: saisons and liga.
+
+## Spiele collector
+
+Can create teams as well. 
+TODO
+
+
+# Transfermarkt data
+
+Mainly assigns prices to players. Also assigns positions to players and games,
+because kicker just has positions for players independent of games.
+
+## 
+

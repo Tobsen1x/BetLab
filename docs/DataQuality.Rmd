@@ -1,0 +1,38 @@
+---
+title: "Data Quality"
+author: "Tobsen1x"
+date: "Monday, November 24, 2014"
+output: html_document
+---
+
+```{r echo=FALSE, prompt=FALSE}
+source('getData.R', encoding = 'UTF8')
+```
+
+
+## Abstract
+This report bases on the data loaded from getData.R.
+It evaluates the data quality to identify possible bugs in the HTML parser or on the homepages.
+
+### TransPos
+
+```{r}
+table(spielerStats$transPos, useNA = 'always')
+```
+
+The NAs should only contain in BENCH Einsätzen (verify in Parser!!!).
+Take a look at these observations:
+
+```{r}
+spielerStats[is.na(spielerStats$transPos) & !(spielerStats$einsatz %in% c('BENCH')), ]
+```
+
+### TransName
+
+Why do observations without a transName exist?
+
+```{r}
+sum(is.na(spielerStats$transName)) / length(spielerStats$transName)
+```
+
+

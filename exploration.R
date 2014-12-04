@@ -1,13 +1,26 @@
 attach(spielerStats)
 
+set <- subset(spielerStats, spielerId == 474)
+set <- set[order(set$saison, set$spieltag), ]
+set
+naName <- relSpielerStats[is.na(transName) & spieltag == 2,]
+paste(naName$spielerId, ',', sep = '')
+
+# Spieltage für eine Saison in der der Trans Parser noch nicht gelaufen ist
+unique(subset(spielerStats, is.na(transPos) & saison == '2013-2014' & einsatz == 'DURCHGESPIELT')$spieltag)
+
 table(kickerPosition, useNA = 'always')
 table(transPos, useNA = 'always')
 # Warum tauchen NAs in transPos auf???
+# Eigentlich nur im Einsatz BENCH!!
 
 table(einsatz, useNA = 'always')
 
+sum(is.na(transName)) / length(transName)
+
+
 library(psych)
-describe(subset(spielerStats, select = c(kickerNote, transNote, fitPrice)))
+describe(subset(spielerStats, select = c(kickerNote, transNote, fitPreis)))
 
 detach(spielerStats)
 
