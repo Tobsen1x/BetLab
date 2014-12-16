@@ -1,79 +1,154 @@
-source('notenModel.R', encoding = 'UTF-8')
-
-library(plyr)
-relSpielerStats <- merge(relSpielerStats, 
-              subset(withNoteSpielerStats, select = c(spielId, spielerId, 
-                                                      modNote)),
-              by = c('spielId', 'spielerId'),  all.x = TRUE)
-
-relSpielerStats$gegnerPreis[is.nan(relSpielerStats$gegnerPreis)] <- NA
-#relSpielerStats[relSpielerStats$spielId == 1, c('kickerFormation', 'transFormation',
-#                                                'heim')]
-spieleToBet <- ddply(relSpielerStats, c('spielId', 'liga', 'saison', 'spieltag', 'spielZeit',
-                         'heimManId', 'auswManId', 'toreHeim', 'toreAusw'), c('nrow') )
-# Column not necessary
-spieleToBet$nrow <- NULL
-
-calcBetaForm <- function(spId, sai, st, maxPastSpieltage, notAufgestelltModNote = -0.5,
-                         noModNote = -0.1) {
-    if(st <= maxPastSpieltage) {
-        maxPastSpieltage <- st - 1
+# Enriches player stats with a predicted prematch form qualifier.
+# Input data frame has to contain adjGrade.
+# FormAlgorithm could be one of:
+# - 'beta'
+# - 'arima'
+enrichForm <- function(playerStats, formAlgorithm, minMatchdays, maxMatchdays, 
+                       imputeBenchBy = NA, imputeNotPlayedBy = NA ) {
+    
+    matchesToBet <- extractMatches(playerStats)
+    
+    playerStats$playerForm <- NA
+    for(i in seq(1:nrow(matchesToBet))) {
+        row <- matchesToBet[i, ]
+        actPlayers <- subset(playerStats, matchId == row$matchId)
+        for(j in seq(1:nrow(actPlayers))) {
+            actPlayer <- actPlayers[j, ]
+            # Simple form calculation
+            if(formAlgorithm == 'beta') {
+                form <- calcBetaForm(playerStats, actPlayer$playerId, actPlayer$season, 
+                                     actPlayer$matchday, maxMatchdays = maxMatchdays, 
+                                     minMatchdays = minMatchdays, 
+                                     imputeBenchBy = imputeBenchBy, 
+                                     imputeNotPlayedBy = imputeNotPlayedBy)
+            } 
+            # Time series arima form calculation
+            else if(formAlgorithm == 'arima') {
+                form <- calcTSForm(playerStats, actPlayer$playerId, actPlayer$season, 
+                                   actPlayer$matchday, minMatchdays = list(...)$minMatchdays, 
+                                   imputeBenchBy = imputeBenchBy,
+                                   imputeNotPlayedBy = imputeNotPlayedBy)
+            } else {
+                throw(paste('Illegal formAlgorithm argument:', formAlgorithm))
+            }
+            
+            playerStats$playerForm[playerStats$playerId == actPlayer$playerId &
+                                       playerStats$matchId == row$matchId] <- form
+        }
     }
-    relEinsaetze <- subset(relSpielerStats, spielerId == spId & saison == sai &
-                                    spieltag < st & spieltag > st - (maxPastSpieltage + 1))
-   
-    if(st == 1 | maxPastSpieltage <= 1) {
+    
+    require(psych)
+    print(describe(playerStats$playerForm))
+    
+    formData <- subset(playerStats, !is.na(playerForm) & !is.na(adjGrade))
+    
+    mseTrivial <- sqrt(1 / nrow(formData) * 
+                           sum((formData$adjGrade - 0) ^ 2))
+    
+    mseForm <- sqrt(1 / nrow(formData) *                     
+                         sum((formData$adjGrade - 
+                                  formData$playerForm) ^ 2))
+    
+    print(paste('MSE Trivial =', mseTrivial, '| MSE Form =', mseForm))
+    playerStats
+}
+
+# Simple form calculation over the last few matches
+calcBetaForm <- function(allStats, playerId, season, matchday, maxMatchdays, minMatchdays, 
+                         imputeBenchBy = NA, imputeNotPlayedBy = NA) {
+    matchCount <- maxMatchdays
+    if(matchday <= maxMatchdays) {
+        matchCount <- matchday - 1
+    }
+    
+    playerMatches <- allStats[allStats$playerId == playerId & allStats$season == season &
+                                allStats$matchday < matchday & 
+                                allStats$matchday > matchday - (matchCount + 1), ]
+    
+    if(matchday <= minMatchdays | matchCount < 1) {
         return(NA)
     }
     
-    
     formVector <- c()
-    gewVector <- c()
-    for(pastSpieltag in seq(1:maxPastSpieltage)) {
-        pastSpiel <- relEinsaetze[relEinsaetze$spieltag == (st - pastSpieltag), ]
+    weightVector <- c()
+    for(past in seq(1:matchCount)) {
+        pastMatch <- playerMatches[playerMatches$matchday == (matchday - past), ]
         
-        gew <- 1 - punif(q = pastSpieltag, 1, maxPastSpieltage)
+        weight <- 1.5 - punif(q = past, 1, maxMatchdays)
         
-        # Spieler war in diesem Spiel nicht aufgestellt
-        if(nrow(pastSpiel) == 0) {
-            form <- notAufgestelltModNote
+        # Player was not deployed
+        if(nrow(pastMatch) == 0) {
+            form <- imputeNotPlayedBy
         } else {
-            # Spieler hat in diesem Spiel keine ModNote
-            if(is.na(pastSpiel$modNote)) {
-                form <- noModNote
+            # Player didn't get a grade this match
+            if(is.na(pastMatch$adjGrade)) {
+                form <- imputeBenchBy
             } else {
-                form <- pastSpiel$modNote
-            }
-            
+                form <- pastMatch$adjGrade
+            }            
+        }
+        
+        if(is.na(form)) {
+            form <- 0
+            weight <- 0
         }
         
         # print(paste(paste('gew:', gew), paste('form:', form)))
         formVector <- c(formVector, form)
-        gewVector <- c(gewVector, gew)
+        weightVector <- c(weightVector, weight)
     }
     
-    zaehler <- sum(formVector * gewVector)
-    nenner <- sum(gewVector)
-    zaehler / nenner
+    enumerator <- sum(formVector * weightVector)
+    denominator <- sum(weightVector)
+    if(denominator == 0) {
+        return(NA)
+    } 
+    enumerator / denominator
 }
 
-relSpielerStats$preBeta5Form <- NA
-for(i in seq(1:nrow(spieleToBet))) {
-    row <- spieleToBet[i, ]
-    relSpieler <- relSpielerStats[relSpielerStats$spielId == row$spielId, ]
-    for(j in seq(1:nrow(relSpieler))) {
-        spieler <- relSpieler[j, ]
-        form <- calcBetaForm(spieler$spielerId, spieler$saison, spieler$spieltag, 5)
-        relSpielerStats$preBeta5Form[relSpielerStats$spielerId == spieler$spielerId &
-                                     relSpielerStats$spielId == row$spielId] <- form
+# Calculates player form with time series analysis over the
+# player performances of the past matches
+calcTSForm <- function(allStats, playerId, season, matchday, minMatchdays, 
+                       imputeBenchBy, imputeNotPlayedBy) {
+    if(matchday < minMatchdays) {
+        return(NA)
+    }
+    
+    playerMatches <- allStats[allStats$playerId == playerId & 
+                                  allStats$season == season & allStats$matchday < matchday, ]
+    
+    formVector <- c()
+    require(forecast)
+    for(past in seq(1:(matchday - 1))) {
+        pastMatch <- playerMatches[playerMatches$matchday == (matchday - past), ]
+        
+        # Player was not deployed
+        if(nrow(pastMatch) == 0) {
+            form <- imputeNotPlayedBy
+        } else {
+            # Player didn't get a grade this match
+            if(is.na(pastMatch$adjGrade)) {
+                form <- imputeBenchBy
+            } else {
+                form <- pastMatch$adjGrade
+            }
+        }
+        formVector <- c(formVector, form)
+    }
+    
+    # reverse Vector
+    formVector <- rev(formVector)
+    timeSeries <- ts(formVector)
+    #plot(timeSeries)
+    # ets needs relatively much data
+    #expTsFit <- ets(timeSeries)
+    
+    autoArimaFit <- try(auto.arima(timeSeries))
+    if(class(autoArimaFit) != 'try-error') {
+        return(forecast(autoArimaFit, 1)$mean)
+    } else {
+        print(paste('ARIMA model not suitable for playerId', playerId, ' | season',
+                    season, ' | matchday', matchday))
+        return (NA)
     }
 }
-
-summary(relSpielerStats$preBeta5Form)
-
-rm(row)
-rm(relSpieler)
-rm(i)
-rm(j)
-rm(form)
-rm(spieler)

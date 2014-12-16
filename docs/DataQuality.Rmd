@@ -6,18 +6,19 @@ output: html_document
 ---
 
 ```{r echo=FALSE, prompt=FALSE}
-source('getData.R', encoding = 'UTF8')
+source('loadData.R', encoding = 'UTF8')
+data <- loadData('BL1')
 ```
 
-
 ## Abstract
-This report bases on the data loaded from getData.R.
-It evaluates the data quality to identify possible bugs in the HTML parser or on the homepages.
+This report bases on the data loaded from loadData.R.
+It evaluates the data quality to identify possible bugs in the HTML parser, DB layer
+or inconstancies on the homepages.
 
 ### TransPos
 
 ```{r}
-table(spielerStats$transPos, useNA = 'always')
+table(data$transPos, useNA = 'always')
 ```
 
 The NAs should only contain in BENCH Einsätzen (verify in Parser!!!).

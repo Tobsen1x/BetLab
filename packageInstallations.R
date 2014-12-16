@@ -1,0 +1,7 @@
+install.packages('RMySQL',type='source')
+install.packages('plyr')
+install.packages('psych')
+install.packages('ggplot2')
+install.packages('caret')
+install.packages('e1071')
+install.packages('pROC')

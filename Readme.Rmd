@@ -1,0 +1,39 @@
+---
+title: "Readme"
+author: "Tobsen1x"
+date: "Tuesday, December 09, 2014"
+output: html_document
+---
+
+## Abstract
+
+TODO
+
+## Content
+
+The program consists of seperate parts distributed in R - scripts, 
+which are executed sequentially.
+
+### getData.R
+
+This script creates a connection to the database. Input are:
+1. DB connection parameter
+2. liga
+
+These datasets are querried:
+1. spielerStats --> 
+    All SpielerStats of all games in one league; each observation is
+    enriched by the youngest price information 
+2. preise --> All transfermarkt information of all players
+
+
+### notenModel.R
+
+This script enriches spielerStats by an adjusted grade which is derived from
+the kicker note.
+
+The output is:
+1. relSpielerStats --> spielerStats filtered by observations with price information;
+2. withNoteSpielerStats --> spielerStats with note and adjusted grade modNote
+
+### formModel.R

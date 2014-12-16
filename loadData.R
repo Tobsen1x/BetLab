@@ -1,0 +1,185 @@
+loadData <- function(league, dbName = 'soccerlabdata3.0') {
+    require(RMySQL)
+    con <- dbConnect(MySQL(), user="root", password="root",
+                     dbname=dbName)
+    
+    ## Reading Match statistics for each player
+    homeLineupStatsQuery <- paste('select sp.id as matchId, sp.liga as league, 
+        sp.saison as season, sp.spieltag as matchday, sp.spielZeit as matchtime,
+        sp.heimMan_id as homeTeamId, sp.auswMan_id as visitorsTeamId, 
+        sp.toreHeim as goalsHome, sp.toreAusw as goalsVisitors, auf.kickerFormation,
+        auf.transFormation, spieler.id as playerId, spieler.kickerName, 
+        spieler.transName, spieler.kickerPosition, 
+        spielerStat.einsatz as playerAssignment, 
+        spielerStat.kickerNote as kickerGrade, spielerStat.transNote as transGrade, 
+        spielerStat.transPos, \'1\' as home
+    from spiel sp 
+    inner join aufstellung auf on sp.heimAuf_id = auf.id
+    inner join aufstellung_spieler aufSp on auf.id = aufSp.Aufstellung_id
+    inner join spieler spieler on aufSp.startElf_id = spieler.id 
+    inner join postspielerspielstatistik spielerStat on sp.id = spielerStat.spiel_id 
+        and spieler.id = spielerStat.spieler_id
+    where sp.liga = \'', league, '\'', sep = '')
+    
+    homeBenchStatsQuery <- paste('select sp.id as matchId, sp.liga as league, 
+        sp.saison as season, sp.spieltag as matchday, sp.spielZeit as matchtime,
+        sp.heimMan_id as homeTeamId, sp.auswMan_id as visitorsTeamId, 
+        sp.toreHeim as goalsHome, sp.toreAusw as goalsVisitors, 
+        auf.kickerFormation, auf.transFormation, spieler.id as playerId, 
+        spieler.kickerName, spieler.transName, spieler.kickerPosition,
+        spielerStat.einsatz as playerAssignment, 
+        spielerStat.kickerNote as kickerGrade, 
+        spielerStat.transNote as transGrade, spielerStat.transPos, \'1\' as home
+    from spiel sp 
+    inner join aufstellung auf on sp.heimAuf_id = auf.id
+    inner join aufstellung_bench aufSp on auf.id = aufSp.Aufstellung_id
+    inner join spieler spieler on aufSp.bench_id = spieler.id 
+    inner join postspielerspielstatistik spielerStat on sp.id = spielerStat.spiel_id 
+        and spieler.id = spielerStat.spieler_id
+    where sp.liga = \'', league, '\'', sep = '')
+    
+    visitorsLineupStatsQuery <- paste('select sp.id as matchId, 
+        sp.liga as league, sp.saison as season, sp.spieltag as matchday, 
+        sp.spielZeit as matchtime, sp.heimMan_id as homeTeamId, 
+        sp.auswMan_id as visitorsTeamId, sp.toreHeim as goalsHome,
+        sp.toreAusw as goalsVisitors, auf.kickerFormation, auf.transFormation, 
+        spieler.id as playerId, spieler.kickerName, spieler.transName, 
+        spieler.kickerPosition, spielerStat.einsatz as playerAssignment, 
+        spielerStat.kickerNote as kickerGrade, 
+        spielerStat.transNote as transGrade, spielerStat.transPos, \'0\' as home
+    from spiel sp 
+    inner join aufstellung auf on sp.auswAuf_id = auf.id
+    inner join aufstellung_spieler aufSp on auf.id = aufSp.Aufstellung_id
+    inner join spieler spieler on aufSp.startElf_id = spieler.id 
+    inner join postspielerspielstatistik spielerStat on sp.id = spielerStat.spiel_id 
+        and spieler.id = spielerStat.spieler_id
+    where sp.liga = \'', league, '\'', sep = '')
+    
+    visitorsBenchStatsQuery <- paste('select sp.id as matchId, 
+        sp.liga as league, sp.saison as season, sp.spieltag as matchday, 
+        sp.spielZeit as matchtime, sp.heimMan_id as homeTeamId, 
+        sp.auswMan_id as visitorsTeamId, sp.toreHeim as goalsHome,
+        sp.toreAusw as goalsVisitors, auf.kickerFormation, auf.transFormation, 
+        spieler.id as playerId, spieler.kickerName, spieler.transName, 
+        spieler.kickerPosition, spielerStat.einsatz as playerAssignment, 
+        spielerStat.kickerNote as kickerGrade, 
+        spielerStat.transNote as transGrade, spielerStat.transPos, \'0\' as home
+    from spiel sp 
+    inner join aufstellung auf on sp.auswAuf_id = auf.id
+    inner join aufstellung_bench aufSp on auf.id = aufSp.Aufstellung_id
+    inner join spieler spieler on aufSp.bench_id = spieler.id 
+    inner join postspielerspielstatistik spielerStat on sp.id = spielerStat.spiel_id 
+        and spieler.id = spielerStat.spieler_id
+    where sp.liga = \'', league, '\'', sep = '')
+    
+    playerStats <- dbGetQuery(con, homeLineupStatsQuery)
+    playerStats <- rbind(playerStats, dbGetQuery(con, homeBenchStatsQuery))
+    playerStats <- rbind(playerStats, dbGetQuery(con, visitorsLineupStatsQuery))
+    playerStats <- rbind(playerStats, dbGetQuery(con, visitorsBenchStatsQuery))
+    
+    # replace Libero transPos with Innenverteidiger
+    playerStats$transPos[playerStats$transPos == 'Libero'] = 'Innenverteidiger'
+    
+    playerStats <- transform(playerStats, league = as.factor(league),
+                             matchtime = as.POSIXct(strptime(matchtime, '%Y-%m-%d %H:%M:%S')),
+                             kickerPosition = as.factor(kickerPosition),
+                             playerAssignment = as.factor(playerAssignment),
+                             transFormation = as.factor(transFormation),
+                             transPos = factor(transPos, c("Torwart", "Innenverteidiger",
+                                                           "Linker Verteidiger", "Rechter Verteidiger",
+                                                           "Defensives Mittelfeld", "Zentrales Mittelfeld",
+                                                           "Linkes Mittelfeld", "Rechtes Mittelfeld",
+                                                           "Offensives Mittelfeld", "Hängende Spitze",
+                                                           "Mittelstürmer", "Linksaußen", "Rechtsaußen")),
+                             home = as.logical(as.numeric(home)))
+    
+    ## Reading player prices
+    priceQuery <- 'select sp.id as playerId, preis.informationDate, 
+        preis.preis as price 
+    from marktpreis preis
+    inner join spieler_marktpreis spPreis on preis.id = spPreis.marktpreise_id
+    inner join spieler sp on spPreis.Spieler_id = sp.id 
+        order by sp.id, preis.informationDate desc'
+    
+    prices <- dbGetQuery(con, priceQuery)
+    prices <- transform(prices, informationDate = 
+                            as.Date(informationDate, format = '%Y-%m-%d'))
+    summary(prices)
+    
+    dbDisconnect(con)
+    
+    #-----------------------------------------------------------------
+    
+    ## returns the last price of a player before matchtime
+    getFitPrice <- function(player, matchtime) {
+        playerPrices <- subset(prices, playerId == player)
+        # No price information for player
+        if(nrow(playerPrices) == 0) {
+            print(paste('No price information for player with ID', player))
+            return(c(NA, NA))
+        }
+        for(i in seq_len(nrow(playerPrices))) {
+            price <- playerPrices[i, ]
+            # playerPrices is sorted, so the first date which is in past of 
+            # the match is returned
+            if(price$informationDate - as.Date(matchtime) <= 0) {
+                return(c(price$price, price$informationDate))
+            }
+        }
+        # If no past price is found, the oldest one is returned
+        priceToReturn <- playerPrices[nrow(playerPrices), ]
+        print(paste('No past price for player', player, 'and matchtime', 
+                    matchtime, 'is found, so the oldest price is returned:', 
+                    priceToReturn$price))
+        return(c(priceToReturn$price, priceToReturn$informationDate))
+    }
+    
+    # Refining player statistics with price and information date
+    playerStats$fitPrice <- NA
+    playerStats$fitPriceDate <- NA
+    for(i in 1:nrow(playerStats)) {
+        row <- playerStats[i, ]
+        price <- getFitPrice(player = row$playerId, matchtime = row$matchtime)
+        playerStats[i, ]$fitPrice <- price[1]
+        playerStats[i, ]$fitPriceDate <- price[2]
+    }
+    
+    playerStats$fitPriceDate <- as.Date(playerStats$fitPriceDate, 
+                                        origin = "1970-01-01")
+    list(playerStats = playerStats, prices = prices)
+}
+
+getResult <- function(gHome, gVisitors) {
+    if(is.na(gHome) | is.na(gVisitors)) {
+        return(NA)
+    }
+    if(gHome - gVisitors > 0) {
+        return(1)
+    } else if(gHome - gVisitors < 0) {
+        return(2)
+    } else {
+        return(0)
+    }
+}
+
+getGoalDiff <- function(gHome, gVisitors) {
+    if(is.na(gHome) | is.na(gVisitors)) {
+        return(NA)
+    }
+    return(gHome - gVisitors)
+}
+
+extractMatches <- function(playerStats) {
+    # Extract matches and enrich with match result
+    matches <- ddply(playerStats, c('matchId', 'league', 'season', 'matchday', 'matchtime',
+                                    'homeTeamId', 'visitorsTeamId', 'goalsHome', 'goalsVisitors'), 
+                     summarise, matchResult = getResult(goalsHome[1], goalsVisitors[1]),
+                     goalDiff = getGoalDiff(goalsHome[1], goalsVisitors[1]))
+    matches <- matches[order(matches$season, matches$matchday), ]
+    # Factorize matchResult
+    matches <- transform(matches, matchResult = 
+                             factor(matchResult, levels = c(2, 0, 1), 
+                                    labels = c('VisitorsVictory', 'Draw', 'HomeVictory'), 
+                                    ordered = TRUE))
+    matches
+}
