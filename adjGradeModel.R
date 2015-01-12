@@ -41,30 +41,31 @@ enrichAdjGrade <- function(playerStats) {
                                   select = c(matchId, playerId, home, 
                                              transPos, fitPrice))
     
+    # enrich player stats with opponent price
     relPlayerStats <- cbind(relPlayerStats, opponentPrice = mapply(
         getOpponentPrice, relPlayerStats$matchId, relPlayerStats$home, 
         relPlayerStats$transPos, 
         MoreArgs = list(playerStats = shrinkedPlayerStats, 
                         posPriceWeight = posPriceWeight)))
     
-    relPlayerStats$priceDiff <- relPlayerStats$fitPrice - 
-        relPlayerStats$opponentPrice
-    relPlayerStats$logPriceFraction <- log(relPlayerStats$fitPrice / 
-                                               relPlayerStats$opponentPrice)
+    #relPlayerStats$priceDiff <- relPlayerStats$fitPrice - 
+    #    relPlayerStats$opponentPrice
+    #relPlayerStats$logPriceFraction <- log(relPlayerStats$fitPrice / 
+    #                                           relPlayerStats$opponentPrice)
     
-    x <- subset(relPlayerStats, select = c(fitPrice, opponentPrice, 
-                                           priceDiff, logPriceFraction, 
-                                           home, transPos))
-    y <- subset(relPlayerStats, select = c(kickerGrade))
+    #x <- subset(relPlayerStats, select = c(fitPrice, opponentPrice, 
+                                           #priceDiff, logPriceFraction, 
+    #                                       home, transPos))
+    #y <- subset(relPlayerStats, select = c(kickerGrade))
     
-    corMatrix <- cor(x[, -c(5, 6)])
-    print('Correlation Matrix:')
-    print(corMatrix)
+    #corMatrix <- cor(x[, -c(3, 4)])
+    #print('Correlation Matrix:')
+    #print(corMatrix)
     
     require(caret)
-    highlyCorrelated <- findCorrelation(corMatrix, cutoff=0.5)
-    print('Predictors which are highly correlated (> 0.5):')
-    print(highlyCorrelated)
+    #highlyCorrelated <- findCorrelation(corMatrix, cutoff=0.75)
+    #print('Predictors which are highly correlated (> 0.75):')
+    #print(highlyCorrelated)
     
     repCVControl <- trainControl(method = 'repeatedcv', number = 10, repeats = 3)
     cvControl <- trainControl(method = 'cv', number = 5)
@@ -84,8 +85,8 @@ enrichAdjGrade <- function(playerStats) {
     ########################    RANDOM FOREST MODEL     ###################################
     
     print(paste('Random Forest Adjusted Grade Model Start Time:', Sys.time()))
-    rfFit <- train(kickerGrade ~ fitPrice + opponentPrice + home + transPos + 
-                       priceDiff + logPriceFraction, data = relPlayerStats, 
+    rfFit <- train(kickerGrade ~ fitPrice + opponentPrice + home + transPos
+                   , data = relPlayerStats, 
                    method = 'rf', trControl = cvControl, 
                    tuneGrid = data.frame(mtry = 3), 
                    importance = TRUE)
@@ -97,32 +98,45 @@ enrichAdjGrade <- function(playerStats) {
     
     #######################     Stochastic Gradient Boosting    ###########################
     
+    # Final model uses n.trees = 250, interaction.depth = 10 and shrinkage = 0.1
     gbmGrid <- expand.grid(.interaction.depth = (1:5) * 2,
                            .n.trees = (1:10)*25, .shrinkage = .1)
-    gbmFit <- train(kickerGrade ~ fitPrice + opponentPrice + home + transPos + 
-                        priceDiff + logPriceFraction, data = relPlayerStats, 
+    gbmFit <- train(kickerGrade ~ fitPrice + opponentPrice + home + transPos
+                    , data = relPlayerStats, 
                     method = 'gbm', trControl = cvControl,verbose = FALSE, tuneGrid = gbmGrid )
-    gbmFit
+    print(gbmFit)
     
     ############################    COMBINED RANDOM FOREST MODEL    ######################
+    
+    #print(paste('Random Forest adjusted Grade Combined Model Start Time:', 
+    #            Sys.time()))
+    #combFit <- train(kickerGrade ~ lmPredKickerGrade + rfPredKickerGrade + gbmPredKickerGrade, 
+    #                 data = relPlayerStats, method = 'rf', 
+    #                 trControl = cvControl,    # tuneGrid = data.frame(mtry = 3), 
+    #                 importance = TRUE)
+    #print(paste('End Time:', Sys.time()))
+    #print(combFit)
+    
+    ############################    GBM Comb fit Model  ###################################
     
     relPlayerStats$lmPredKickerGrade <- predict(lmFit, newdata = relPlayerStats)
     relPlayerStats$rfPredKickerGrade <- predict(rfFit, newdata = relPlayerStats)
     relPlayerStats$gbmPredKickerGrade <- predict(gbmFit, newdata = relPlayerStats)
     
-    print(paste('Random Forest adjusted Grade Combined Model Start Time:', 
+    # The final values used for the model were n.trees = 150, interaction.depth = 8 and shrinkage = 0.1.
+    print(paste('GBM adjusted Grade Combined Model Start Time:', 
                 Sys.time()))
-    combFit <- train(kickerGrade ~ lmPredKickerGrade + rfPredKickerGrade + gbmPredKickerGrade, 
-                     data = relPlayerStats, method = 'rf', 
-                     trControl = cvControl,    # tuneGrid = data.frame(mtry = 3), 
-                     importance = TRUE)
+    gbmCombFit <- train(kickerGrade ~ lmPredKickerGrade + rfPredKickerGrade + gbmPredKickerGrade, 
+                     data = relPlayerStats, method = 'gbm', 
+                     trControl = cvControl, verbose = FALSE, tuneGrid = gbmGrid)
     print(paste('End Time:', Sys.time()))
-    print(combFit)
+    print(gbmCombFit)
     
-    combImportance <- varImp(combFit, scale = FALSE)
+    
+    combImportance <- varImp(gbmCombFit, scale = FALSE)
     print(combImportance)
     
-    relPlayerStats$combPredKickerGrade <- predict(combFit, 
+    relPlayerStats$combPredKickerGrade <- predict(gbmCombFit, 
                                                   newdata = relPlayerStats)
     relPlayerStats$adjGrade <- relPlayerStats$combPredKickerGrade - 
         relPlayerStats$kickerGrade

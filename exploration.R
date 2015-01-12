@@ -9,6 +9,7 @@ library(plyr)
 ddply(stats, c('matchday', 'season'), summarise, matchCount = length(unique(matchId)),
       statsCount = length(matchId))
 
+
 # Trans Position
 table(stats$transPos, useNA = 'always')
 # Player Assignment
@@ -67,9 +68,33 @@ ggplot(mergedStats, aes(x = 'adjGrade', y = adjGrade)) +
 ##########  Exploration of the player form data     ##########
 source(file = 'formModel.R', echo = FALSE, encoding = 'UTF-8')
 formEnrichedPlayerStats <- enrichForm(mergedStats, 'beta',  
-                                      maxMatchdays = 4, minMatchdays = 3)
+                                      maxMatchdays = 8, minMatchdays = 3)
 #formEnrichedPlayerStats <- enrichForm(mergedStats, 'arima', 0, -0.1, 
 #                                      minMatchdays = 5)
+
+print(describe(formEnrichedPlayerStats$playerForm))
+
+subset(formEnrichedPlayerStats, playerForm > 3)
+bsp <- subset(formEnrichedPlayerStats, playerId == 438 & season =='2011-2012' & matchday <= 15)
+bsp <- bsp[order(bsp$matchday), ]
+
+
+
+########### simpleResultFeatureExtraction   #################
+source(file = 'simpleResultFeatureExtraction.R', echo = FALSE, encoding = 'UTF-8')
+matches <- simpleMatchFeatureExtract(formEnrichedPlayerStats)
+describe(subset(matches, select = c(homePrice, visitorsPrice, homeForm, visitorsForm)))
+summary(subset(matches, select = c(homePrice, visitorsPrice, homeForm, visitorsForm)))
+
+library(ggplot2)
+qplot(formDiff, goalDiff, data = ergModelData, geom = c("point", "smooth"))
+
+ggplot(ergModelData, aes(x = formDiff, y = goalDiff)) +
+    geom_point()
+
+##########  simpleResultModel   #############################
+source(file = 'simpleResultModelFit.R', echo = FALSE, encoding = 'UTF-8')
+
 
 
 ##########  Exploration of the Match Result Features    ##########

@@ -1,4 +1,4 @@
-loadData <- function(league, dbName = 'soccerlabdata3.0') {
+loadData <- function(league, dbName = 'soccerlabdata4.0') {
     require(RMySQL)
     con <- dbConnect(MySQL(), user="root", password="root",
                      dbname=dbName)
@@ -104,7 +104,17 @@ loadData <- function(league, dbName = 'soccerlabdata3.0') {
     prices <- dbGetQuery(con, priceQuery)
     prices <- transform(prices, informationDate = 
                             as.Date(informationDate, format = '%Y-%m-%d'))
-    summary(prices)
+    
+    # Odds
+    oddQuery <- 'select spiel_id as matchId, quoteHeim as homeOdd, 
+        quoteAusw as visitorsOdd, quoteUnent as drawOdd
+    from quote where quelle = \'SfStat\'';
+    odds <- dbGetQuery(con, oddQuery)
+    
+    # Enrich odds with probabilities
+    odds$HomeVictory <- 1 / odds$homeOdd
+    odds$VisitorsVictory <- 1 / odds$visitorsOdd
+    odds$Draw <- 1 / odds$drawOdd
     
     dbDisconnect(con)
     
@@ -146,7 +156,7 @@ loadData <- function(league, dbName = 'soccerlabdata3.0') {
     
     playerStats$fitPriceDate <- as.Date(playerStats$fitPriceDate, 
                                         origin = "1970-01-01")
-    list(playerStats = playerStats, prices = prices)
+    list(playerStats = playerStats, prices = prices, odds = odds)
 }
 
 getResult <- function(gHome, gVisitors) {
@@ -170,6 +180,7 @@ getGoalDiff <- function(gHome, gVisitors) {
 }
 
 extractMatches <- function(playerStats) {
+    require(plyr)
     # Extract matches and enrich with match result
     matches <- ddply(playerStats, c('matchId', 'league', 'season', 'matchday', 'matchtime',
                                     'homeTeamId', 'visitorsTeamId', 'goalsHome', 'goalsVisitors'), 
