@@ -25,7 +25,7 @@ enrichForm <- function(playerStats, formAlgorithm, minMatchdays, maxMatchdays,
             # Time series arima form calculation
             else if(formAlgorithm == 'arima') {
                 form <- calcTSForm(playerStats, actPlayer$playerId, actPlayer$season, 
-                                   actPlayer$matchday, minMatchdays = list(...)$minMatchdays, 
+                                   actPlayer$matchday, minMatchdays = minMatchdays, 
                                    imputeBenchBy = imputeBenchBy,
                                    imputeNotPlayedBy = imputeNotPlayedBy)
             } else {
@@ -110,7 +110,7 @@ calcBetaForm <- function(allStats, playerId, season, matchday, maxMatchdays, min
 # player performances of the past matches
 calcTSForm <- function(allStats, playerId, season, matchday, minMatchdays, 
                        imputeBenchBy, imputeNotPlayedBy) {
-    if(matchday < minMatchdays) {
+    if(matchday <= minMatchdays) {
         return(NA)
     }
     

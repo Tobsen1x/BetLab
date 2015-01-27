@@ -43,9 +43,6 @@ gradeStats <- subset(assignmentStats, !is.nan(meanGrade))
 ggplot(gradeStats, aes(x = playerAssignment, y = meanGrade, fill = playerAssignment)) + 
     geom_boxplot()
 
-
-
-
 ggplot(subset(stats, !is.na(kickerGrade)), aes(x = home, y = kickerGrade, fill = home)) +
     geom_boxplot() +
     scale_y_continuous(breaks = seq(2.5, 4.5, 0.5)) +
@@ -69,8 +66,8 @@ ggplot(mergedStats, aes(x = 'adjGrade', y = adjGrade)) +
 source(file = 'formModel.R', echo = FALSE, encoding = 'UTF-8')
 formEnrichedPlayerStats <- enrichForm(mergedStats, 'beta',  
                                       maxMatchdays = 8, minMatchdays = 3)
-#formEnrichedPlayerStats <- enrichForm(mergedStats, 'arima', 0, -0.1, 
-#                                      minMatchdays = 5)
+formEnrichedPlayerStats <- enrichForm(mergedStats, 'arima', 0, -0.2, 
+                                      minMatchdays = 5)
 
 print(describe(formEnrichedPlayerStats$playerForm))
 

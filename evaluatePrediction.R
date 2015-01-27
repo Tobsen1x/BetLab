@@ -103,3 +103,11 @@ evaluatePrediction <- function(prediction, comparison = odds, probRatioToBet = 1
     list(valueDiff = valueDiff, accuracy = accuracy, stake = stake, gain = gain,
          placedBets = placedBets)
 }
+
+printEvaluation <- function(evalList) {
+    print(paste('Stake:', evalList$stake))
+    print(paste('Gain:', evalList$gain))
+    print(paste('Gain [%]:', evalList$gain / evalList$stake))
+    print(paste('Value Diff:', evalList$valueDiff))
+    print(paste('Accuracy:', evalList$accuracy))
+}
