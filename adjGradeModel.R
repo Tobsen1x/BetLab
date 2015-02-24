@@ -1,6 +1,7 @@
 # Calculates the weighted price of the opponents playing against
 getOpponentPrice <- function(playerStats, posPriceWeights, gId, h, transPos) {
-    opponentStats <- subset(playerStats, matchId == gId & home != h)
+    require(dplyr)
+    opponentStats <- filter(playerStats, matchId == gId, home != h)
     
     weightSum <- 0
     priceSum <- 0
@@ -16,13 +17,10 @@ getOpponentPrice <- function(playerStats, posPriceWeights, gId, h, transPos) {
     priceSum / weightSum
 }
 
-# Calculates the adjusted grade which purges the kicker grade with the aim
-# that this adjusted grade just represent the short/middle term form
-# of the player.
-enrichAdjGrade <- function(playerStats) {
-    
+extractFeaturesForAdjGradeModel <- function(playerStats) {
+    require(dplyr)
     # Remove all player stats without a price, transPos or kickerGrade
-    relPlayerStats <- subset(playerStats, !is.na(fitPrice) & !is.na(transPos) &
+    relPlayerStats <- filter(playerStats, !is.na(fitPrice), !is.na(transPos),
                                  !is.na(kickerGrade))
     
     #############   FEATURE EXTRACTION      ######################
@@ -34,12 +32,11 @@ enrichAdjGrade <- function(playerStats) {
     rownames(posPriceWeight) <- levels(relPlayerStats$transPos)
     colnames(posPriceWeight) <- levels(relPlayerStats$transPos)
     
-    print('Table of Trans Positions of stats with fitPrice, transPos and kickerGrade:')
-    print(summary(relPlayerStats$transPos))
+    #print('Table of Trans Positions of stats with fitPrice, transPos and kickerGrade:')
+    #print(summary(relPlayerStats$transPos))
     
-    shrinkedPlayerStats <- subset(relPlayerStats, 
-                                  select = c(matchId, playerId, home, 
-                                             transPos, fitPrice))
+    shrinkedPlayerStats <- select(relPlayerStats, matchId, 
+                                  playerId, home, transPos, fitPrice)
     
     # enrich player stats with opponent price
     relPlayerStats <- cbind(relPlayerStats, opponentPrice = mapply(
@@ -48,93 +45,41 @@ enrichAdjGrade <- function(playerStats) {
         MoreArgs = list(playerStats = shrinkedPlayerStats, 
                         posPriceWeight = posPriceWeight)))
     
-    set.seed(1)
+    relPlayerStats
+}
+
+# Calculates the adjusted grade which purges the kicker grade with the aim
+# that this adjusted grade solely represent the short/middle term form
+# of the player.
+enrichAdjGrade <- function(relPlayerStats) {
     require(caret)
-    combIndex <- createDataPartition(relPlayerStats$kickerGrade, p = .5,
-                                     list = FALSE,
-                                     times = 1)
-    kickerGradeDataset <- relPlayerStats[ -combIndex,]
-    combinedDataset <- relPlayerStats[combIndex,]
+    require(dplyr)
+    require(magrittr)
+    modelData <- relPlayerStats %>% select(kickerGrade, fitPrice, 
+                                         opponentPrice, home, transPos)
     
-    #highlyCorrelated <- findCorrelation(corMatrix, cutoff=0.75)
-    #print('Predictors which are highly correlated (> 0.75):')
-    #print(highlyCorrelated)
+    # BoxCox Transformation to resolve skewness
+    preProc <- modelData %>% select(fitPrice, opponentPrice) %>% 
+        preProcess(method = c('center', 'scale', 'BoxCox'))
+    preProcPredictors <-  preProc %>% predict(select(modelData, fitPrice, opponentPrice))
+    preProcPredictors <- preProcPredictors %>% rename(preProcFitPrice = fitPrice, 
+                                                      preProcOpponentPrice = opponentPrice)
+    # attach preprocessed predictors
+    modelData <- modelData %>% cbind(preProcPredictors)
     
-    repCVControl <- trainControl(method = 'repeatedcv', number = 10, repeats = 3)
-    cvControl <- trainControl(method = 'cv', number = 5)
-    
-    set.seed(1)
+    repCVControl <- trainControl(method = 'repeatedcv', 
+                                 number = 10, repeats = 3)
     
     ################    LM MODEL    ##################################
+    set.seed(1)
+    lmPreProcFit <- train(kickerGrade ~ poly(preProcFitPrice, 3) + 
+                               poly(preProcOpponentPrice, 3) +
+                               home + transPos, data = modelData,
+                          method = 'lm', trControl = repCVControl)
     
-    lmFit <- train(kickerGrade ~ fitPrice + opponentPrice + home + transPos,
-                   data = kickerGradeDataset, method = 'lm', trControl = repCVControl,
-                   preProcess = c('center', 'scale'))
-    print(lmFit)
-    
-    lmImportance <- varImp(lmFit, scale = FALSE)
-    print(lmImportance)
-    
-    ########################    RANDOM FOREST MODEL     ###################################
-    
-    print(paste('Random Forest Adjusted Grade Model Start Time:', Sys.time()))
-    rfFit <- train(kickerGrade ~ fitPrice + opponentPrice + home + transPos
-                   , data = kickerGradeDataset, 
-                   method = 'rf', trControl = cvControl, 
-                   importance = TRUE)
-    print(paste('End Time:', Sys.time()))
-    print(rfFit)
-    
-    rfImportance <- varImp(rfFit, scale = FALSE)
-    print(rfImportance)
-    
-    #######################     Stochastic Gradient Boosting    ###########################
-    
-    # Final model uses n.trees = 250, interaction.depth = 10 and shrinkage = 0.1
-    #gbmGrid <- expand.grid(.interaction.depth = (1:5) * 2,
-    #                       .n.trees = (1:10)*25, .shrinkage = .1)
-    gbmGrid <- expand.grid(.interaction.depth = 10,
-                           .n.trees = 250, .shrinkage = .1)
-    gbmFit <- train(kickerGrade ~ fitPrice + opponentPrice + home + transPos
-                    , data = kickerGradeDataset, 
-                    method = 'gbm', trControl = cvControl,verbose = FALSE, tuneGrid = gbmGrid )
-    print(gbmFit)
-    
-    ############################    COMBINED RANDOM FOREST MODEL    ######################
-    
-    combinedDataset$lmPredKickerGrade <- predict(lmFit, newdata = combinedDataset)
-    combinedDataset$rfPredKickerGrade <- predict(rfFit, newdata = combinedDataset)
-    combinedDataset$gbmPredKickerGrade <- predict(gbmFit, newdata = combinedDataset)
-    
-    print(paste('Random Forest adjusted Grade Combined Model Start Time:', 
-                Sys.time()))
-    combFit <- train(kickerGrade ~ lmPredKickerGrade + rfPredKickerGrade + gbmPredKickerGrade, 
-                     data = combinedDataset, method = 'rf', 
-                     trControl = cvControl, importance = TRUE)
-    print(paste('End Time:', Sys.time()))
-    print(combFit)
-    
-    ############################    GBM Comb fit Model  ###################################
-    
-    # The final values used for the model were n.trees = 150, interaction.depth = 8 and shrinkage = 0.1.
-    print(paste('GBM adjusted Grade Combined Model Start Time:', 
-                Sys.time()))
-    gbmCombFit <- train(kickerGrade ~ lmPredKickerGrade + rfPredKickerGrade + gbmPredKickerGrade, 
-                     data = combinedDataset, method = 'gbm', 
-                     trControl = cvControl, verbose = FALSE, tuneGrid = gbmGrid)
-    print(paste('End Time:', Sys.time()))
-    print(gbmCombFit)
-    
-    
-    combImportance <- varImp(gbmCombFit, scale = FALSE)
-    print(combImportance)
-    
-    relPlayerStats$lmPredKickerGrade <- predict(lmFit, newdata = relPlayerStats)
-    relPlayerStats$rfPredKickerGrade <- predict(rfFit, newdata = relPlayerStats)
-    relPlayerStats$gbmPredKickerGrade <- predict(gbmFit, newdata = relPlayerStats)    
-    relPlayerStats$combPredKickerGrade <- predict(gbmCombFit, 
-                                                  newdata = relPlayerStats)
-    relPlayerStats$adjGrade <- relPlayerStats$combPredKickerGrade - 
+    # Subtracting the achieved kicker grade from the predicted one to
+    # extract the pure player performance
+    relPlayerStats$adjGrade <- predict(lmPreProcFit, newdata = modelData) - 
         relPlayerStats$kickerGrade
     
     relPlayerStats

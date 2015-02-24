@@ -1,6 +1,4 @@
-simpleMatchFeatureExtract <- function(playerStats) {
-    matches <- extractMatches(playerStats)
-    
+simpleMatchFeatureExtract <- function(playerStats, matches) {
     matches$homePrice <- NA
     matches$visitorsPrice <- NA
     matches$homeForm <- NA
@@ -26,12 +24,14 @@ simpleMatchFeatureExtract <- function(playerStats) {
     matches
 }
 
-calcTeamPrice <- function(playerStats, home, matchId) {
-    featureStats <- playerStats[playerStats$matchId == matchId & playerStats$home == home, ]
+calcTeamPrice <- function(playerStats, h, mId) {
+    featureStats <- filter(playerStats, matchId == mId, home == h,
+                           playerAssignment != 'BENCH')
     return(mean(featureStats$fitPrice))
 }
 
-calcTeamForm <- function(playerStats, home, matchId) {
-    featureStats <- playerStats[playerStats$matchId == matchId & playerStats$home == home, ]
+calcTeamForm <- function(playerStats, h, mId) {
+    featureStats <- filter(playerStats, matchId == mId, home == h,
+                           playerAssignment != 'BENCH')
     return(mean(featureStats$playerForm, na.rm = TRUE))
 }

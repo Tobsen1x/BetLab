@@ -91,7 +91,8 @@ fitSimpleResultModel <- function(simpleMatchFeatures, seed = 1) {
     evaluationGoalDiffPredictions <- as.data.frame(predict(allModels, newdata = ergModelData))
     evaluationGoalDiffPredictions$matchResult <- ergModelData$matchResult
     evaluationGoalDiffPredictions$matchId <- ergModelData$matchId
-    evaluationResults <- predict(polrCombFit, newdata = evaluationGoalDiffPredictions, type = 'prob')
+    evaluationResults <- predict(polrCombFit, newdata = evaluationGoalDiffPredictions, 
+                                 type = 'prob')
     evaluationResults$matchId <- ergModelData$matchId
     evaluationResults$matchResult <- ergModelData$matchResult
     

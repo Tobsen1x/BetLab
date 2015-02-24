@@ -3,15 +3,12 @@
 # FormAlgorithm could be one of:
 # - 'beta'
 # - 'arima'
-enrichForm <- function(playerStats, formAlgorithm, minMatchdays, maxMatchdays, 
+enrichForm <- function(playerStats, matchesToBet, formAlgorithm, minMatchdays, maxMatchdays, 
                        imputeBenchBy = NA, imputeNotPlayedBy = NA ) {
-    
-    matchesToBet <- extractMatches(playerStats)
-    
     playerStats$playerForm <- NA
     for(i in seq(1:nrow(matchesToBet))) {
         row <- matchesToBet[i, ]
-        actPlayers <- subset(playerStats, matchId == row$matchId)
+        actPlayers <- filter(playerStats, matchId == row$matchId)
         for(j in seq(1:nrow(actPlayers))) {
             actPlayer <- actPlayers[j, ]
             # Simple form calculation
@@ -37,19 +34,16 @@ enrichForm <- function(playerStats, formAlgorithm, minMatchdays, maxMatchdays,
         }
     }
     
-    require(psych)
-    print(describe(playerStats$playerForm))
+    #formData <- filter(playerStats, !is.na(playerForm), !is.na(adjGrade))
     
-    formData <- subset(playerStats, !is.na(playerForm) & !is.na(adjGrade))
+    #mseTrivial <- sqrt(1 / nrow(formData) * 
+    #                       sum((formData$adjGrade - 0) ^ 2))
     
-    mseTrivial <- sqrt(1 / nrow(formData) * 
-                           sum((formData$adjGrade - 0) ^ 2))
+    #mseForm <- sqrt(1 / nrow(formData) *                     
+    #                     sum((formData$adjGrade - 
+    #                              formData$playerForm) ^ 2))
     
-    mseForm <- sqrt(1 / nrow(formData) *                     
-                         sum((formData$adjGrade - 
-                                  formData$playerForm) ^ 2))
-    
-    print(paste('MSE Trivial =', mseTrivial, '| MSE Form =', mseForm))
+    #print(paste('MSE Trivial =', mseTrivial, '| MSE Form =', mseForm))
     playerStats
 }
 

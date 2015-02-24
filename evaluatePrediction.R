@@ -5,6 +5,7 @@ evaluatePrediction <- function(prediction, comparison = odds, probRatioToBet = 1
     valueDiffVec <- c()
     possibleMatches <- 0
     hitVec <- c()
+    bookyHitVec <- c()
     placedBets <- data.frame()
     for(i in seq(1:length(prediction$matchId))) {
         aktPred <- prediction[i, ]
@@ -28,6 +29,22 @@ evaluatePrediction <- function(prediction, comparison = odds, probRatioToBet = 1
         if(nrow(aktComp) == 0) {
             # TODO continue
         }
+        
+        # Booky Accuracy
+        bookyProb <- as.numeric(aktComp[as.character(aktPred$matchResult)])
+        bookyOtherProbs <- aktComp[
+            names(aktComp) != as.character(aktPred$matchResult) & 
+                (names(aktComp) == 'HomeVictory' | names(aktComp) == 'Draw' |
+                     names(aktComp) == 'VisitorsVictory')]
+        if(bookyProb > as.numeric(bookyOtherProbs[1]) &
+               bookyProb > as.numeric(bookyOtherProbs[2])) {
+            bookyHitVec <- c(bookyHitVec, TRUE)       
+        }
+        # No hit
+        else {
+            bookyHitVec <- c(bookyHitVec, FALSE)
+        }
+        
         
         possibleMatches <- possibleMatches + 1
         
@@ -95,19 +112,21 @@ evaluatePrediction <- function(prediction, comparison = odds, probRatioToBet = 1
                                            gain = matchGain))
         }
     }
-    valueDiff <- mean(valueDiffVec)
-    accuracy <- mean(hitVec)
+    valueDiff <- mean(valueDiffVec) * 100
+    accuracy <- mean(hitVec) * 100
+    bookyAccuracy <- mean(bookyHitVec) * 100
     stake <- sum(placedBets$stake)
     gain <- sum(placedBets$gain)
     
-    list(valueDiff = valueDiff, accuracy = accuracy, stake = stake, gain = gain,
-         placedBets = placedBets)
+    list(valueDiff = valueDiff, accuracy = accuracy, bookyAccuracy = bookyAccuracy,
+         stake = stake, gain = gain, placedBets = placedBets)
 }
 
 printEvaluation <- function(evalList) {
     print(paste('Stake:', evalList$stake))
     print(paste('Gain:', evalList$gain))
-    print(paste('Gain [%]:', evalList$gain / evalList$stake))
-    print(paste('Value Diff:', evalList$valueDiff))
-    print(paste('Accuracy:', evalList$accuracy))
+    print(paste('Gain [%]:', evalList$gain / evalList$stake * 100))
+    print(paste('Value Diff [%]:', evalList$valueDiff))
+    print(paste('Accuracy [%]:', evalList$accuracy))
+    print(paste('Booky Accuracy [%]:', evalList$bookyAccuracy))
 }

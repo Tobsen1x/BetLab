@@ -2,170 +2,201 @@
 source(file = 'loadData.R', echo = FALSE, encoding = 'UTF-8')
 data <- loadData('BL1')
 stats <- data$playerStats
-dim(stats)
+matches <- data$matches
+odds <- data$odds
 
-# Contained match days
-library(plyr)
-ddply(stats, c('matchday', 'season'), summarise, matchCount = length(unique(matchId)),
-      statsCount = length(matchId))
+library(dplyr)
+summary(select(stats, kickerGrade, transPos, playerAssignment, fitPrice))
 
-
-# Trans Position
-table(stats$transPos, useNA = 'always')
-# Player Assignment
-table(stats$playerAssignment, useNA = 'always')
-
-# Exloration of grades and fitted prices
-library(psych)
-describe(subset(stats, select = c(kickerGrade, transGrade, fitPrice)))
-
-# Group by players
-playerStats <- ddply(stats, c('playerId'), summarize, meanPrice = mean(fitPrice))
-describe(playerStats$meanPrice)
-
-# Group by Trans Position
-posStats <- ddply(stats, c('playerId', 'transPos'), summarize, 
-                  meanPrice = mean(fitPrice, na.rm = TRUE))
-posStats <- subset(posStats, !is.na(transPos) & !is.nan(meanPrice))
-library(ggplot2)
-ggplot(posStats, aes(x = transPos, y = meanPrice, fill = transPos)) + geom_boxplot()
-
-# Group by Player Assignment
-assignmentStats <- ddply(stats, c('playerId', 'playerAssignment'), summarize, 
-                         meanPrice = mean(fitPrice, na.rm = TRUE), 
-                         meanGrade = mean(kickerGrade, na.rm = TRUE))
-priceStats <- subset(assignmentStats, !is.nan(meanPrice))
-
-ggplot(priceStats, aes(x = playerAssignment, y = meanPrice, fill = playerAssignment)) + 
-    geom_boxplot()
-
-gradeStats <- subset(assignmentStats, !is.nan(meanGrade))
-ggplot(gradeStats, aes(x = playerAssignment, y = meanGrade, fill = playerAssignment)) + 
-    geom_boxplot()
-
-ggplot(subset(stats, !is.na(kickerGrade)), aes(x = home, y = kickerGrade, fill = home)) +
-    geom_boxplot() +
-    scale_y_continuous(breaks = seq(2.5, 4.5, 0.5)) +
-    facet_wrap(~ transPos)
-
-##########  Exploration of the adjusted grade calculation   ##########
+############ Enrich adjusted grades #############
 source(file = 'adjGradeModel.R', echo = FALSE, encoding = 'UTF-8')
-enrichedStats <- enrichAdjGrade(stats)
-library(plyr)
+
+### Explore adjusted grade ###
+adjGradeData <- extractFeaturesForAdjGradeModel(stats)
+suppressMessages(library(dplyr))
+suppressMessages(library(magrittr))
+modelData <- adjGradeData %>% select(kickerGrade, fitPrice, 
+                                     opponentPrice, home, transPos)
+
+suppressMessages(library(e1071))
+# Checking for skewness in numeric predictors
+modelData %>% select(fitPrice, opponentPrice) %>% apply(2, skewness)
+
+suppressMessages(library(caret))
+# BoxCox Transformation to resolve skewness
+preProc <- modelData %>% select(fitPrice, opponentPrice) %>% 
+    preProcess(method = c('center', 'scale', "BoxCox"))
+preProcPredictors <-  preProc %>% predict(select(modelData, fitPrice, opponentPrice))
+preProcPredictors <- preProcPredictors %>% dplyr::rename(preProcFitPrice = fitPrice, 
+                                                  preProcOpponentPrice = opponentPrice)
+# attach preprocessed predictors
+modelData <- modelData %>% cbind(preProcPredictors)
+
+library(ggplot2)
+modelData %>% ggplot(aes(y = kickerGrade)) +
+    geom_smooth(aes(x = preProcFitPrice, colour = 'preProcFitPrice')) +
+    geom_smooth(aes(x = preProcOpponentPrice, 
+                    colour = 'preProcOpponentPrice')) +
+    scale_x_continuous(name = element_blank()) +
+    scale_colour_discrete(name  = element_blank(),
+                          breaks=c("preProcFitPrice", "preProcOpponentPrice"),
+                          labels=c("Fit Price [preProc]", "Opponent Price [preProc]")) +
+    ggtitle(label = 'Preprocessed Fit Price and Opponent Price\nagainst the outcome')
+
+repCVControl <- trainControl(method = 'repeatedcv', number = 10, 
+                             repeats = 3)
+set.seed(1)
+# ordinary linear regression
+lmPreProcFit <- train(kickerGrade ~ poly(preProcFitPrice, 3) + 
+                          poly(preProcOpponentPrice, 3) +
+                          home + transPos, data = modelData,
+                      method = 'lm', trControl = repCVControl)
+lmPreProcFit
+
+residPlot1 <- modelData %>% ggplot(aes(y = kickerGrade, x = predict(lmPreProcFit, modelData))) +
+    geom_smooth() +
+    coord_fixed(ratio = 1, xlim = c(2, 5), ylim = c(2, 5)) +
+    scale_x_continuous(name = 'Predicted') +
+    scale_y_continuous(name = 'Observed') +
+    geom_abline(intercept = 0, slope = 1, size = 0.01, linetype = 'dashed')
+    
+residPlot2 <- modelData %>% ggplot(aes(y = resid(lmPreProcFit), x = predict(lmPreProcFit, modelData))) +
+    geom_smooth() +
+    scale_x_continuous(name = 'Predicted') +
+    scale_y_continuous(name = 'Residual') +
+    geom_hline(size = 0.01, linetype = 'dashed')
+
+library(grid)
+library(gridExtra)
+grid.arrange(residPlot1, residPlot2, ncol = 2, main = "Residual Plots")
+
+### continue enrich adjusted grade ###
+
+enrichedStats <- enrichAdjGrade(adjGradeData)
 # Merges adjusted grade in stats
-mergedStats <- merge(stats, subset(enrichedStats, select = c(matchId, playerId, adjGrade)),
-                     by = c('matchId', 'playerId'),  all.x = TRUE)
+mergedStats <- merge(stats, select(
+    enrichedStats, matchId, playerId, adjGrade),
+    by = c('matchId', 'playerId'),  all.x = TRUE)
+summary(mergedStats$adjGrade)
 
-subset(mergedStats, !is.na(kickerGrade) & is.na(adjGrade))
-describe(mergedStats$adjGrade)
-ggplot(mergedStats, aes(x = 'adjGrade', y = adjGrade)) + 
-    geom_boxplot()
-
-
-##########  Exploration of the player form data     ##########
+########## Enrich player form ##########
 source(file = 'formModel.R', echo = FALSE, encoding = 'UTF-8')
-formEnrichedPlayerStats <- enrichForm(mergedStats, 'beta',  
-                                      maxMatchdays = 8, minMatchdays = 3)
-formEnrichedPlayerStats <- enrichForm(mergedStats, 'arima', 0, -0.2, 
-                                      minMatchdays = 5)
-
-print(describe(formEnrichedPlayerStats$playerForm))
-
-subset(formEnrichedPlayerStats, playerForm > 3)
-bsp <- subset(formEnrichedPlayerStats, playerId == 438 & season =='2011-2012' & matchday <= 15)
-bsp <- bsp[order(bsp$matchday), ]
-
-
+formEnrichedPlayerStats <- enrichForm(mergedStats, matches, 'arima', minMatchdays = 5,
+                                      imputeBenchBy = -0.05, imputeNotPlayedBy = -0.25)
+summary(formEnrichedPlayerStats$playerForm)
 
 ########### simpleResultFeatureExtraction   #################
-source(file = 'simpleResultFeatureExtraction.R', echo = FALSE, encoding = 'UTF-8')
-matches <- simpleMatchFeatureExtract(formEnrichedPlayerStats)
-describe(subset(matches, select = c(homePrice, visitorsPrice, homeForm, visitorsForm)))
-summary(subset(matches, select = c(homePrice, visitorsPrice, homeForm, visitorsForm)))
+library(dplyr)
+source(file = 'simple/simpleResultFeatureExtraction.R', echo = FALSE, encoding = 'UTF-8')
+featuredMatches <- simpleMatchFeatureExtract(
+    formEnrichedPlayerStats, matches)
+# Replace NANs with NAs
+featuredMatches[is.nan(featuredMatches$homeForm), 'homeForm'] <- NA
+featuredMatches[is.nan(featuredMatches$visitorsForm), 'visitorsForm'] <- NA
 
-library(ggplot2)
-qplot(formDiff, goalDiff, data = ergModelData, geom = c("point", "smooth"))
+### simple result feature exploration ###
+modelData <- featuredMatches %>% filter(!is.na(homePrice), !is.na(visitorsPrice),
+                                  !is.na(homeForm), !is.na(visitorsForm))
+modelData <- modelData %>% mutate(priceDiff = homePrice - visitorsPrice,
+                                  logPriceRate = log(homePrice / visitorsPrice),
+                                  formDiff = homeForm - visitorsForm)
 
-ggplot(ergModelData, aes(x = formDiff, y = goalDiff)) +
-    geom_point()
+library(psych)
+describe(select(modelData, homePrice, visitorsPrice, homeForm, visitorsForm,
+                priceDiff, logPriceRate, formDiff))
 
-##########  simpleResultModel   #############################
-source(file = 'simpleResultModelFit.R', echo = FALSE, encoding = 'UTF-8')
+p1 <- modelData %>% ggplot(aes(y = goalDiff, x = priceDiff)) +
+    geom_smooth()
+p2 <- modelData %>% ggplot(aes(y = goalDiff, x = logPriceRate)) +
+    geom_smooth()
+p3 <- modelData %>% ggplot(aes(y = goalDiff, x = formDiff)) +
+    geom_smooth()
+grid.arrange(p1, p2, p3, ncol = 2, main = "feature vs. goalDiff")
 
+### Data splitting ###
 
+set.seed(1)
+testIndex <- createDataPartition(modelData$goalDiff, p = 0.2,
+                                 list = FALSE,
+                                 times = 1)
+test <- modelData[ testIndex, ]
+train <- modelData[ -testIndex, ]
+set.seed(1)
+goalDiffTrainIndex <- createDataPartition(train$goalDiff, p = 0.5,
+                                          list = FALSE,
+                                          times = 1)
+goalDiffTrain <- train[ goalDiffTrainIndex, ]
+resultTrain <- train[ -goalDiffTrainIndex, ]
 
-##########  Exploration of the Match Result Features    ##########
-source(file = 'matchResultFeatureExtraction.R', echo = FALSE, encoding = 'UTF-8')
-modelMatches <- extractMatchResultFeatures(formEnrichedPlayerStats)
-describe(modelMatches)
+### goal diff model exploration ###
 
+repCVControl <- trainControl(method = 'repeatedcv', number = 10, repeats = 3)
+set.seed(1)
+lmGoalDiffFit <- train(goalDiff ~ priceDiff + logPriceRate + formDiff, method = 'lm',
+               data = goalDiffTrain, trControl = trainControl(method = 'cv'))
+lmGoalDiffFit
+summary(lmGoalDiffFit)
 
-##########  Exploration of the Match Result Model   ##########
-source(file = 'matchResultModel.R', echo = FALSE, encoding = 'UTF-8')
-head(modelMatches)
-dim(modelMatches)
+# Multivariate adaptive regression splines
+marsGrid <- expand.grid(.degree = 1:2, .nprune = 2:38)
+set.seed(1)
+earthGoalDiffFit <- train(goalDiff ~ priceDiff + logPriceRate + formDiff, method = 'earth',
+                          data = goalDiffTrain, tuneGrid = marsGrid, 
+                          trControl = trainControl(method = 'cv'))
+earthGoalDiffFit
 
+# Neural Network
+nnetGrid <- expand.grid(.decay = c(0, 0.01, 0.1),
+                        .size = c(1:10))
+set.seed(1)
+nnetGoalDiffFit <- train(goalDiff ~ priceDiff + logPriceRate + formDiff, method = 'nnet',
+                         tuneGrid = nnetGrid, trControl = trainControl(method = 'cv'),
+                         data = goalDiffTrain,
+                         preProc = c('center', 'scale'), linout = TRUE,
+                         trace = FALSE, MaxNWts = 10 * (3 + 1) + 10 + 1,
+                         maxit = 500)
+nnetGoalDiffFit
 
-
-##############
-#spieleToBet <- spieleToBet[, -(10:41)]
-#dim(spieleToBet)
-#summary(spieleToBet[, 10:41])
-#sum(apply(spieleToBet[spieleToBet$spieltag != 1, 10:29],1,function(x)!any(is.na(x)))) / 
-#    nrow(spieleToBet[spieleToBet$spieltag != 1,])
-#spieleToBet[apply(spieleToBet[, 10:29],1,function(x)!any(is.na(x))), 10:29]
-#allNotNa <- spieleToBet[sum(is.na(spieleToBet[,10:41]))]
-#sum(is.na(spieleToBet[, 10:41])) == 0
-#spieleToBet[1, 10:41]
-##############
-
-#attach(spielerStats)
-#set <- subset(spielerStats, spielerId == 474)
-#set <- set[order(set$saison, set$spieltag), ]
-#set
-#naName <- relSpielerStats[is.na(transName) & spieltag == 2,]
-#paste(naName$spielerId, ',', sep = '')
-
-# Spieltage für eine Saison in der der Trans Parser noch nicht gelaufen ist
-#unique(subset(spielerStats, is.na(transPos) & saison == '2013-2014' & einsatz == 'DURCHGESPIELT')$spieltag)
-
-#table(kickerPosition, useNA = 'always')
-#table(transPos, useNA = 'always')
-# Warum tauchen NAs in transPos auf???
-# Eigentlich nur im Einsatz BENCH!!
-
-#table(einsatz, useNA = 'always')
-
-#sum(is.na(transName)) / length(transName)
-
-#library(psych)
-#describe(subset(spielerStats, select = c(kickerNote, transNote, fitPreis)))
-
-#detach(spielerStats)
-
-## Explore NAs
-
-# Spieler ohne Preis
-#unique(subset(spielerStats, is.na(fitPrice), c(spielerId))$spielerId)
+resamples <- resamples(list(lmFit = lmGoalDiffFit, marsFit = earthGoalDiffFit,
+                            nnetFit = nnetGoalDiffFit))
+summary(resamples)
 
 
-# Sonstige Explorationen
-#summary(naomitSpielerStats)
-#str(naomitSpielerStats)
 
-#library(ggplot2)
-#ggplot(naomitSpielerStats, aes(x = heim, y = kickerNote, fill = heim)) +
-#    geom_boxplot() +
-#    scale_y_continuous(breaks = seq(2.5, 4.5, 0.5)) +
-#    facet_wrap(~ transPos)
 
-#library(plyr)
-#groupedStats <- ddply(naomitSpielerStats, c('transPos', 'heim'), 
-#                      summarise, meanNote = mean(kickerNote), sdNote = sd(kickerNote),
-#                      meanPreis = mean(fitPrice), sdPreis = sd(fitPrice), N = length(fitPrice))
-#head(groupedStats)
+residPlot1 <- goalDiffTrain %>% ggplot(aes(y = goalDiff, x = predict(lmGoalDiffFit, goalDiffTrain))) +
+    geom_point() +
+    geom_smooth() +
+    coord_fixed(ratio = 1, xlim = c(-2.5, 3), ylim = c(-2.5, 3)) +
+    scale_x_continuous(name = 'Predicted') +
+    scale_y_continuous(name = 'Observed') +
+    geom_abline(intercept = 0, slope = 1, size = 0.2, linetype = 'dashed')
 
-# Fitpreis - NOte
-#ggplot(naomitSpielerStats, aes(x = fitPrice, y = kickerNote)) +
-#    geom_point()
-s
+residPlot2 <- goalDiffTrain %>% ggplot(aes(y = resid(lmGoalDiffFit), 
+                                           x = predict(lmGoalDiffFit, goalDiffTrain))) +
+    geom_point() +
+    geom_smooth() +
+    scale_x_continuous(name = 'Predicted') +
+    scale_y_continuous(name = 'Residual') +
+    geom_hline(size = 0.2, linetype = 'dashed')
+
+library(grid)
+library(gridExtra)
+grid.arrange(residPlot1, residPlot2, ncol = 2, main = "Residual Plots")
+
+### explore result model ###
+resultModelInput <- train %>% mutate(goalDiffPred = predict(lmGoalDiffFit, train))
+polrFit <- train(matchResult ~ goalDiffPred, method = 'polr', data = resultModelInput, 
+                     trControl = repCVControl)
+polrFit
+
+testSet <- data.frame(goalDiffPred = predict(lmGoalDiffFit, test))
+testSet$matchResult <- test$matchResult
+testSet$matchId <- test$matchId
+testResult <- predict(polrFit, testSet, type = 'prob')
+testResult$matchResult <- testSet$matchResult
+testResult$matchId <- testSet$matchId
+
+source(file = 'evaluatePrediction.R', echo = FALSE, encoding = 'UTF-8')
+evaluations <- evaluatePrediction(testResult)
+printEvaluation(evaluations)
