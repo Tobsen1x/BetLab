@@ -11,3 +11,21 @@ stopifnot(gegnerPreis1 > 5000000 & gegnerPreis1 < 7000000)
 
 # Test Beta5Form Calculation
 neuerForm <- calcBetaForm(spId = 1, sai = '2013-2014', st = 23, maxPastSpieltage = 5)
+
+# Test teamForm
+enrichedMatches <- enrichTeamPricePlace(stats, matches)
+homeAdvantage <- 3
+formDevEnrichedMatches <- enrichFormDev(enrichedMatches, homeAdvantage)
+minMatchdays <- 3
+maxMatchdays <- 8
+teamFormEnrichedMatches <- enrichTeamForm(formDevEnrichedMatches,
+                                          minMatchdays, maxMatchdays)
+
+mId <- 1567
+row <- filter(teamFormEnrichedMatches, matchId == mId)
+homeTeamForm <- calcTeamForm(formDevEnrichedMatches, row$homeTeamId, 
+                             row$season, row$matchday, minMatchdays, 
+                             maxMatchdays)
+visitorsTeamForm <- calcTeamForm(formDevEnrichedMatches, row$visitorsTeamId, 
+                                 row$season, row$matchday, minMatchdays, 
+                                 maxMatchdays)

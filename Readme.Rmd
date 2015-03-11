@@ -135,9 +135,9 @@ The adjusted grade is calculated by subtracting the achieved kicker grade by the
 
 ## Enrich stats by an estimated form value for the upcoming match
 
-In the next step the before calculated adjusted grades are used to estimate a form parameter for every player in each upcoming match. To acomplish a valid form parameter, an arima time series analysis is performed, the past performances, represented in the adjusted grade, are passed to the time series analysis to predict the performance for the upcoming match. There have to be at least 5 past matches to make a form calculation possible. Matches in which the regarded player did not participate or in which he sit on the bench are imputed with a static value.
+In the next step the before calculated adjusted grades are used to estimate a form parameter for every player in each upcoming match. To acomplish a valid form parameter, an arima time series analysis is performed, the past performances, represented in the adjusted grade, are passed to the time series analysis to predict the performance for the upcoming match. There have to be at least 5 past matches to make a form calculation possible. Matches in which the regarded player did not participate, or in which he sit on the bench are imputed with a static value.
 
-```{r warning=FALSE, message=FALSE}
+```{r warning=FALSE, message=FALSE, cache=TRUE}
 source(file = 'formModel.R', echo = FALSE, encoding = 'UTF-8')
 formEnrichedPlayerStats <- enrichForm(mergedStats, matches, 'arima', minMatchdays = 5, imputeBenchBy = -0.05, imputeNotPlayedBy = -0.25)
 summary(formEnrichedPlayerStats$playerForm)
@@ -195,6 +195,7 @@ testIndex <- createDataPartition(modelData$goalDiff, p = 0.2,
                                  times = 1)
 test <- modelData[ testIndex, ]
 train <- modelData[ -testIndex, ]
+set.seed(1)
 goalDiffTrainIndex <- createDataPartition(train$goalDiff, p = 0.5,
                                           list = FALSE,
                                           times = 1)
@@ -246,3 +247,21 @@ polrFit <- train(matchResult ~ goalDiffPred, method = 'polr', data = resultModel
 polrFit
 ```
 
+## Results
+
+To evaluate the predictions, the propabilities for the outcomes of the testset are calculated. These propabilities are passed to the fuction evaluatePrediction which calculates statistics to compare the pridictions with real booky odds.
+
+```{r warning=FALSE, message=FALSE}
+# Predicting testset
+testSet <- data.frame(goalDiffPred = predict(lmGoalDiffFit, test))
+testSet$matchResult <- test$matchResult
+testSet$matchId <- test$matchId
+testResult <- predict(polrFit, testSet, type = 'prob')
+testResult$matchResult <- testSet$matchResult
+testResult$matchId <- testSet$matchId
+
+# Evaluation
+source(file = 'evaluatePrediction.R', echo = FALSE, encoding = 'UTF-8')
+evaluations <- evaluatePrediction(testResult)
+printEvaluation(evaluations)
+```
