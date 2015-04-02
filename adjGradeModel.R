@@ -62,7 +62,7 @@ enrichAdjGrade <- function(relPlayerStats) {
     preProc <- modelData %>% select(fitPrice, opponentPrice) %>% 
         preProcess(method = c('center', 'scale', 'BoxCox'))
     preProcPredictors <-  preProc %>% predict(select(modelData, fitPrice, opponentPrice))
-    preProcPredictors <- preProcPredictors %>% rename(preProcFitPrice = fitPrice, 
+    preProcPredictors <- preProcPredictors %>% dplyr:::rename(preProcFitPrice = fitPrice, 
                                                       preProcOpponentPrice = opponentPrice)
     # attach preprocessed predictors
     modelData <- modelData %>% cbind(preProcPredictors)

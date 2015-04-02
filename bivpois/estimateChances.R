@@ -1,4 +1,6 @@
 enrichDoublePoissonExpChances <- function(matches, minMatchdays) {
+    require(dplyr)
+    require(magrittr)
     matches$homeExpChances <- NA
     matches$visitorsExpChances <- NA
     allSeasons <- distinct(select(matches, season))[, 1]

@@ -1,4 +1,4 @@
-loadData <- function(league, dbName = 'soccerlabdata1.0', verbose = FALSE) {
+loadData <- function(league, dbName = 'soccerlabdata4.0', verbose = FALSE) {
     require(RMySQL)
     con <- dbConnect(MySQL(), user="root", password="root",
                      dbname=dbName)

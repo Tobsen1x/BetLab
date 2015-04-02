@@ -1,4 +1,7 @@
 extractFeatures <- function(playerStats, matches) {
+    require(forecast)
+    require(dplyr)
+    
     matches$homePrice <- NA
     matches$visitorsPrice <- NA
     matches$homeMeanfForm <- NA
@@ -55,7 +58,7 @@ extractFeatures <- function(playerStats, matches) {
 calcTeamPrice <- function(playerStats, h, mId) {
     featureStats <- filter(playerStats, matchId == mId, home == h,
                            playerAssignment != 'BENCH')
-    return(mean(featureStats$fitPrice))
+    return(mean(featureStats$fitPrice, na.rm = TRUE))
 }
 
 calcTeamForm <- function(formAlgo, playerStats, h, mId) {

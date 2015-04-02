@@ -1,6 +1,6 @@
 # Enriches player stats with a predicted prematch form qualifier.
 # Input data frame has to contain adjGrade.
-enrichForm <- function(playerStats, matchesToBet, minMatchdays, 
+enrichForm <- function(playerStats, matchesToBet, minMatchdays, maxMatchdays = 100,
                        imputeBenchBy = NA, imputeNotPlayedBy = NA) {
     require(forecast)
     require(dplyr)
@@ -21,6 +21,7 @@ enrichForm <- function(playerStats, matchesToBet, minMatchdays,
             # Time series forecasting
             forecasts <- calcTSForm(playerStats, actPlayer,
                                     minMatchdays = minMatchdays, 
+                                    maxMatchdays = maxMatchdays,
                                     playerFormImpute = playerFormImpute,
                                     imputeBenchBy = imputeBenchBy,
                                     imputeNotPlayedBy = imputeNotPlayedBy)
@@ -32,7 +33,7 @@ enrichForm <- function(playerStats, matchesToBet, minMatchdays,
             playerStats$sesSimple[playerStats$playerId == actPlayer$playerId &
                                       playerStats$matchId == row$matchId] <- forecasts$sesSimple
             playerStats$formQuality[playerStats$playerId == actPlayer$playerId &
-                                      playerStats$matchId == row$matchId] <- forecasts$formQuality
+                                        playerStats$matchId == row$matchId] <- forecasts$formQuality
         }
     }
     
@@ -41,7 +42,7 @@ enrichForm <- function(playerStats, matchesToBet, minMatchdays,
 
 # Calculates player form with time series analysis over the
 # player performances of the past matches
-calcTSForm <- function(allStats, playerStat, minMatchdays, 
+calcTSForm <- function(allStats, playerStat, minMatchdays, maxMatchdays,
                        playerFormImpute, imputeBenchBy, imputeNotPlayedBy) {
     mday <- playerStat$matchday
     if(mday <= minMatchdays) {
@@ -51,34 +52,41 @@ calcTSForm <- function(allStats, playerStat, minMatchdays,
                     formQuality = NA))
     }
     
-    #playerMatches <- allStats %>% filter(playerId == pId, season == sea,
-    #                                     matchday < mday)
     pastPlayerMatches <- allStats[allStats$playerId == playerStat$playerId & 
                                       allStats$season == playerStat$season &
                                       allStats$matchday < mday, ]
     pastPlayerMatches <- pastPlayerMatches[order(-pastPlayerMatches$matchday), ]
     
-    # Old, static version
-    #timeSeries <- extractTimeSeriesByStaticImpute(playerMatches, mday, 
-    #                                              imputeNotPlayedBy,
-    #                                              imputeBenchBy)
-    
-    teammateStats <- allStats[allStats$season == playerStat$season &
-                                  allStats$matchday == mday &
-                                  allStats$home == playerStat$home &
-                                  allStats$playerId != playerStat$playerId &
-                                  allStats$playerAssignment != 'BENCH', ]
-    if(playerStat$home) {
-        teammateStats <- teammateStats[teammateStats$homeTeamId == 
-                                           playerStat$homeTeamId, ]
-    } else {
-        teammateStats <- teammateStats[teammateStats$visitorsTeamId == 
-                                           playerStat$visitorsTeamId, ]
+    # Filter maxMatchdays matches
+    if(nrow(pastPlayerMatches) > maxMatchdays) {
+        pastPlayerMatches <- pastPlayerMatches[1:maxMatchdays, ]
     }
     
-    # New, dynamix version
-    ts <- extractTimeSeries(pastPlayerMatches, teammateStats, 
-                                    playerStat, playerFormImpute)
+    # Static version
+    if(!is.na(imputeNotPlayedBy) & !is.na(imputeBenchBy)) {
+        ts <- extractTimeSeriesByStaticImpute(pastPlayerMatches, mday, 
+                                              imputeNotPlayedBy,
+                                              imputeBenchBy)
+    } 
+    # New version
+    else {
+        teammateStats <- allStats[allStats$season == playerStat$season &
+                                      allStats$matchday == mday &
+                                      allStats$home == playerStat$home &
+                                      allStats$playerId != playerStat$playerId &
+                                      allStats$playerAssignment != 'BENCH', ]
+        if(playerStat$home) {
+            teammateStats <- teammateStats[teammateStats$homeTeamId == 
+                                               playerStat$homeTeamId, ]
+        } else {
+            teammateStats <- teammateStats[teammateStats$visitorsTeamId == 
+                                               playerStat$visitorsTeamId, ]
+        }
+        
+        # New, dynamix version
+        ts <- extractTimeSeries(pastPlayerMatches, teammateStats, 
+                                playerStat, playerFormImpute)
+    }
     
     timeSeries = ts$timeSeries
     #plot(timeSeries)
@@ -146,11 +154,11 @@ extractTimeSeries <- function(pastPlayerMatches, teammateStats,
             playerPriceRate <- playerPrice / comparisonPrice
             
             if(nrow(pastMatch) > 0) {
-              if(pastMatch$playerAssignment == 'BENCH') {
-                  relImpute <- playerFormImpute[playerFormImpute$bench == TRUE, ]
-              } else {
-                  relImpute <- playerFormImpute[playerFormImpute$bench == FALSE, ]
-              }
+                if(pastMatch$playerAssignment == 'BENCH') {
+                    relImpute <- playerFormImpute[playerFormImpute$bench == TRUE, ]
+                } else {
+                    relImpute <- playerFormImpute[playerFormImpute$bench == FALSE, ]
+                }
             } else {
                 relImpute <- playerFormImpute[playerFormImpute$bench == FALSE, ]
             }
@@ -193,6 +201,7 @@ extractTimeSeriesByStaticImpute <- function(playerMatches, mday,
                                             imputeNotPlayedBy,
                                             imputeBenchBy) {
     formVector <- c()
+    formQuality <- c()
     
     # Iterates backwards over past matches of the player
     for(past in seq(1:(mday - 1))) {
@@ -201,19 +210,24 @@ extractTimeSeriesByStaticImpute <- function(playerMatches, mday,
         
         # Player was not deployed
         if(nrow(pastMatch) == 0) {
-            form <- imputeNotPlayedBy
+            formVector <- c(formVector, imputeNotPlayedBy)
+            formQuality <- c(formQuality, FALSE)
         } else {
             # Player didn't get a grade this match
             if(is.na(pastMatch$adjGrade)) {
-                form <- imputeBenchBy
+                formVector <- c(formVector, imputeBenchBy)
+                formQuality <- c(formQuality, FALSE)
             } else {
-                form <- pastMatch$adjGrade
+                formVector <- c(formVector, pastMatch$adjGrade)
+                formQuality <- c(formQuality, TRUE)
             }
         }
-        formVector <- c(formVector, form)
     }
     
     # reverse Vector
     formVector <- rev(formVector)
     timeSeries <- ts(formVector)
+    
+    formQual <- sum(formQuality) / length(formQuality)
+    return(list(timeSeries = timeSeries, formQuality = formQual))
 }

@@ -1,4 +1,6 @@
 enrichBivPoisExpGoals <- function(matches, minMatchdays) {
+    require(dplyr)
+    require(magrittr)
     matches$homeExpGoals <- NA
     matches$visitorsExpGoals <- NA
     allSeasons <- distinct(select(matches, season))[, 1]

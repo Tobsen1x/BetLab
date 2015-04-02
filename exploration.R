@@ -110,6 +110,16 @@ formEnrichedPlayerStats <- enrichForm(mergedStats, matches, minMatchdays = 5,
 formExploreData <- formEnrichedPlayerStats %>% filter(
     !is.na(adjGrade), !is.na(sesOptimal))
 
+describe(select(formExploreData, adjGrade, meanf, 
+                sesOptimal, sesSimple, formQuality))
+summary(select(formExploreData, adjGrade, meanf, 
+               sesOptimal, sesSimple, formQuality))
+
+
+
+means <- rep(mean(formExploreData$adjGrade), length(formExploreData$adjGrade))
+
+accuracy(means, formExploreData$adjGrade)
 accuracy(formExploreData$meanf, formExploreData$adjGrade)
 accuracy(formExploreData$sesOptimal, formExploreData$adjGrade)
 accuracy(formExploreData$sesSimple, formExploreData$adjGrade)
@@ -128,11 +138,14 @@ Test set -0.02762759 0.9525993 0.755079 57.16827 257.9617
 ########### simpleResultFeatureExtraction   #################
 library(dplyr)
 source(file = 'featureExtraction.R', echo = FALSE, encoding = 'UTF-8')
-featuredMatches <- extractFeatures(formEnrichedPlayerStats, enrMatches)
+featuredMatches <- extractFeatures(formEnrichedPlayerStats, chancesEnrMatches)
 describe(select(featuredMatches, goalDiff, priceDiff, logPriceRate, formMeanfDiff, 
                 formSesOptimalDiff, formSesSimpleDiff, expGoalDiff, expChancesDiff))
+summary(select(featuredMatches, goalDiff, priceDiff, logPriceRate, formMeanfDiff, 
+               formSesOptimalDiff, formSesSimpleDiff, expGoalDiff, expChancesDiff))
 
 library(caret)
+library(ggplot2)
 
 # Price and poisson features
 p1 <- featuredMatches %>% ggplot(aes(y = goalDiff, x = priceDiff)) +
@@ -174,11 +187,11 @@ resultTrain <- train[ -goalDiffTrainIndex, ]
 
 ### goal diff model exploration ###
 library(caret)
-set.seed(1)
+set.seed(1234)
 goalDiffFormula <- goalDiff ~ priceDiff + logPriceRate +  
-    formMeanfDiff + expChancesDiff + expGoalDiff + formSesOptimalDiff
+    formMeanfDiff + expChancesDiff
 lmGoalDiffFit <- train(goalDiffFormula, method = 'lm',
-               data = modelInput, trControl = trainControl(method = 'cv'))
+               data = featuredMatches, trControl = trainControl(method = 'cv'))
 lmGoalDiffFit
 summary(lmGoalDiffFit)
 
