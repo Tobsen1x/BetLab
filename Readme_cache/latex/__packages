@@ -1,0 +1,16 @@
+base
+ggplot2
+DBI
+RMySQL
+lattice
+caret
+e1071
+pROC
+ggvis
+plyr
+dplyr
+gridExtra
+magrittr
+survival
+Formula
+Hmisc

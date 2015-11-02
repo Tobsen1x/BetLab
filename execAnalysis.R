@@ -4,71 +4,97 @@ data <- loadData('BL1')
 stats <- data$playerStats
 matches <- data$matches
 odds <- data$odds
-# --> loadedData.RData
+players <- data$player
+prices <- data$prices
 
-### Enrich with adjGrades
-source(file = 'adjGradeModel.R', echo = FALSE, encoding = 'UTF-8')
-adjGradeData <- extractFeaturesForAdjGradeModel(stats)
-enrichedStats <- enrichAdjGrade(adjGradeData)
-# Merges adjusted grade in stats
-mergedStats <- merge(stats, select(
-    enrichedStats, matchId, playerId, adjGrade),
-    by = c('matchId', 'playerId'),  all.x = TRUE)
-summary(mergedStats$adjGrade)
-# --> adjGradeEnrichedData.RData
+load('data/basisData.RData')
 
-### Enrich diagonal inflated bivariate poisson expected goals
-load('data/bivPois.RData')
-source(file = 'bivpois/estimateGoals.R', echo = FALSE, encoding = 'UTF-8')
-enrMatches <- enrichBivPoisExpGoals(matches, minMatchdays = 5)
-describe(select(enrMatches, goalsHome, goalsVisitors, 
-                homeExpGoals, visitorsExpGoals))
+describe(select(stats, playerAssignment))
+head(filter(stats, playerAssignment == 'EINGEWECHSELT'))
 
-### Enrich double poisson expected chances
-source(file = 'bivpois/estimateChances.R', echo = FALSE, encoding = 'UTF-8')
-chancesEnrMatches <- enrichDoublePoissonExpChances(enrMatches, minMatchdays = 5)
-describe(select(chancesEnrMatches, homeChances, visitorsChances, 
-                homeExpChances, visitorsExpChances))
-# --> matchStatsEnrichedData.RData
+### PositionFeatureExtraction
+source(file = 'positionFeatureExtraction.R', echo = FALSE, encoding = 'UTF-8')
 
-### Enrich player form
-source(file = 'formModel.R', echo = FALSE, encoding = 'UTF-8')
-formEnrichedPlayerStats <- enrichForm(mergedStats, matches, minMatchdays = 5,
-                                      imputeBenchBy = -0.05, imputeNotPlayedBy = -0.1)
-# --> formEnrichedData_staticImpute.RData
+#colNames <- c('Torwart', 'Innenverteidiger', 'Linker Verteidiger', 'Rechter Verteidiger',
+#              'Defensives Mittelfeld', 'Zentrales Mittelfeld', 'Linkes Mittelfeld',
+#              'Rechtes Mittelfeld', 'Offensives Mittelfeld', 'Haengende Spitze', 
+#              'Mittelstuermer', 'Linksaussen', 'Rechtsaussen')
+#priceAssignedPositions <- c('tw', 'iv', 'lv', 'rv', 'dm', 'mit', 'lm', 'rm', 'om', 'om', 'st', 'ls', 'rs')
+priceAssignedPositions <- c('def', 'def', 'def', 'def', 'mid', 'mid', 'mid', 'mid', 'off', 'off', 'off', 'off', 'off')
+featuredMatches <- extractMatchResultFeatures(stats, matches, 
+                                              priceAssignedPositions = priceAssignedPositions)
 
-
-### Feature extraction
-source(file = 'featureExtraction.R', echo = FALSE, encoding = 'UTF-8')
-featuredMatches <- extractFeatures(formEnrichedPlayerStats, chancesEnrMatches)
-describe(select(featuredMatches, goalDiff, priceDiff, logPriceRate, formMeanfDiff, 
-                formSesOptimalDiff, formSesSimpleDiff, expGoalDiff, expChancesDiff))
-
-# Filter observations for model fit
-featuredMatches <- filter(featuredMatches, !is.na(goalDiff), !is.na(expGoalDiff), 
-       !is.na(expChancesDiff), !is.na(priceDiff), !is.na(formMeanfDiff))
-
-library(psych)
-library(dplyr)
-source(file = 'resultModel.R', echo = FALSE, encoding = 'UTF-8')
-splits <- splitMatches(featuredMatches, folds = 10, seed = 1234)
-
-allPredictions <- NA
-for(i in 1:10) {
-    testset <- splits[[i]]$testset
-    goalDiffTrain <- splits[[i]]$goalDiffTrainset
-    resultTrain <- splits[[i]]$resultTrainset
+############### Predictions with just price feature set ##################
+goalDiffTrain <- relevantFeatureMatches
+formula <- as.formula('goalDiff ~ .')
+goalDiffTrain <- dplyr::select(goalDiffTrain, -c(matchId, matchResult))
+trainControl <- trainControl(method = 'cv', number = 5)
     
-    testsetPredictions <- fitResultModel(goalDiffTrainset = goalDiffTrain,
-                                         resultTrainset = resultTrain,
-                                         testset = testset, seed = 1234)
-    if(is.na(allPredictions)) {
-        allPredictions <- testsetPredictions
-    } else {
-        allPredictions <- rbind(allPredictions, testsetPredictions)
-    }
-}
+##########################################
+
+source(file = 'resultModel.R', echo = FALSE, encoding = 'UTF-8')
+folds <- 10
+seed <- 1234
+relevantFeatureMatches <- filterFeaturedMatches(featuredMatches)
+
+allPredictionsList <- executeWholePrediction(featuredMatches = relevantFeatureMatches,
+                                             folds = folds, seed = seed)
 
 source(file = 'evaluatePrediction.R', echo = FALSE, encoding = 'UTF-8')
-allEvaluations <- evaluatePrediction(prediction = allPredictions, comparison = odds)
-printEvaluation(allEvaluations)
+for(actName in names(allPredictionsList)) {
+    actPredictions <- allPredictionsList[[actName]]
+    actEvaluations <- evaluatePrediction(prediction = actPredictions, comparison = odds)
+    print(paste('Result ', actName, ':', sep = ''))
+    printEvaluation(actEvaluations)
+    print('')
+}
+
+saveRDS(allPredictionsList, 'test.rds')
+allPreds <- readRDS('test.rds')
+###########################################################################
+###########################################################################
+################ Age Price Adjustment #################
+
+### Age adjusted price model feature enrichment ###
+source(file = 'adjustedPrice/enrichAdjustedPrice.R', echo = FALSE, encoding = 'UTF-8')
+adjStatsData <- extractAdjStatsModelInput(player = players,
+                                          playerStats = stats)
+filteredAdjStatsData <- filter(adjStatsData, !is.na(kickerGrade))
+
+### AgeAdjFitPrice Calculation ###
+source(file = 'adjustedPrice/adjPriceModels.R', echo = FALSE, encoding = 'UTF-8')
+refAge <- floor(mean(filteredAdjStatsData$age))
+seed <- 1234
+ageAdjStats <- enrichByAgeAdjFitPrice(filteredAdjStatsData, adjStatsData, 
+                                      refAge, seed)
+
+############### Form Price Adjustment #####################
+
+source(file = 'adjustedPrice/enrichAdjustedPrice.R', echo = FALSE, encoding = 'UTF-8')
+formModelInput <- extractAdjPriceModelInput(prices = prices, playerStats = stats, player = players)
+filteredFormModelInput <- filter(formModelInput, !is.na(avgForm))
+
+describe(select(formModelInput, weeksPast, age, avgForm, gradeCount, statsCount))
+
+source(file = 'adjustedPrice/adjPriceModels.R', echo = FALSE, encoding = 'UTF-8')
+formula <- as.formula('endPrice ~ startPrice + avgForm + age')
+seed <- 1234
+adjPriceModels <- fitModels(formula = formula, train = filteredFormModelInput, seed = seed)
+
+### Exploration
+summary(adjPriceModels$lm$finalModel)
+exampleData <- createExampleObservations()
+predictedExamples <- predictPrice(adjPriceModels, exampleData)
+predDataFrame <- do.call(cbind.data.frame, predictedExamples)
+exampleData <- cbind(exampleData, predDataFrame)
+
+# Calculate AdjPrice
+enrichedStats <- enrichStatsByAgeAndAvgForm(stats = stats, players = players)
+describe(select(enrichedStats, avgForm, pastWeeks))
+View(filter(enrichedStats, is.na(pastWeeks)))
+adjPriceRelStats <- filter(enrichedStats, !is.na(avgForm), !is.na(fitPrice))
+adjPriceInput <- data.frame('startPrice' = adjPriceRelStats$fitPrice, 
+                            'avgForm' = adjPriceRelStats$avgForm,
+                            'age' = adjPriceRelStats$age)
+adjPricePrediction <- predict(adjPriceModels, adjPriceInput)
+adjPriceRelStats <- cbind(adjPriceRelStats, adjPricePrediction)

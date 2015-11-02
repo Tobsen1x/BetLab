@@ -12,8 +12,8 @@ evaluatePrediction <- function(prediction, comparison = odds, probRatioToBet = 1
         
         # Accuracy calculation
         predProb <- as.numeric(aktPred[as.character(aktPred$matchResult)])
-        otherProbs <- aktPred[1:3][
-            names(aktPred[1:3]) != as.character(aktPred$matchResult)]
+        otherProbs <- aktPred[3:5][
+            names(aktPred[3:5]) != as.character(aktPred$matchResult)]
         
         if(predProb > as.numeric(otherProbs[1]) &
                predProb > as.numeric(otherProbs[2])) {
@@ -27,7 +27,7 @@ evaluatePrediction <- function(prediction, comparison = odds, probRatioToBet = 1
         aktComp <- comparison[comparison$matchId == aktPred$matchId, ]
         # No Booky odds on this match
         if(nrow(aktComp) == 0) {
-            # TODO continue
+            next
         }
         
         # Booky Accuracy
@@ -92,25 +92,25 @@ evaluatePrediction <- function(prediction, comparison = odds, probRatioToBet = 1
                                            stake = stake,
                                            gain = matchGain))
         }
-        # Bet on Draw
-        if(as.numeric(aktPred$Draw) / as.numeric(aktComp$Draw) >= probRatioToBet) {
-            # Bet won
-            if(aktPred$matchResult == 'Draw') {
-                matchGain <- aktComp$drawOdd * stake - stake
-            } 
-            # Bet lost
-            else {
-                matchGain <- -stake
-            }
-            placedBets <- rbind(placedBets, 
-                                data.frame(matchId = aktPred$matchId,
-                                           matchResult = aktPred$matchResult,
-                                           betOnOutcome = 'Draw',
-                                           predProb = as.numeric(aktPred$Draw),
-                                           bookyProb = as.numeric(aktComp$Draw),
-                                           stake = stake,
-                                           gain = matchGain))
-        }
+        # NO Bets on Draw
+#        if(as.numeric(aktPred$Draw) / as.numeric(aktComp$Draw) >= probRatioToBet) {
+#            # Bet won
+#            if(aktPred$matchResult == 'Draw') {
+#                matchGain <- aktComp$drawOdd * stake - stake
+#            } 
+#            # Bet lost
+#            else {
+#                matchGain <- -stake
+#            }
+#            placedBets <- rbind(placedBets, 
+#                                data.frame(matchId = aktPred$matchId,
+#                                           matchResult = aktPred$matchResult,
+#                                           betOnOutcome = 'Draw',
+#                                           predProb = as.numeric(aktPred$Draw),
+#                                           bookyProb = as.numeric(aktComp$Draw),
+#                                           stake = stake,
+#                                           gain = matchGain))
+#        }
     }
     valueDiff <- mean(valueDiffVec) * 100
     accuracy <- mean(hitVec) * 100

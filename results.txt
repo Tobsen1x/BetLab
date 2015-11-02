@@ -1,0 +1,37 @@
+Results:
+
+    ########### GERMANY & ENGLAND ##############
+
+# Real Aufst train und test
+
+[1] 1.1
+[1] "Stake: 3488"
+[1] "Gain: 467.97"
+[1] "Gain [%]: 13.4165711009174"
+[1] "Value Diff [%]: -2.05106747236866"
+[1] "Accuracy [%]: 53.3236151603499"
+[1] "Booky Accuracy [%]: 52.8940078728678"
+
+
+    ########### GERMANY ####################
+
+Just POLR with Center and scaled predictors -- Just starting 11
+
+[1] "Stake: 2055"
+[1] "Gain: 588.62"
+[1] "Gain [%]: 28.6433090024331"
+[1] "Value Diff [%]: -1.1503352630952"
+[1] "Accuracy [%]: 53.6982730531118"
+[1] "Booky Accuracy [%]: 50.6679700228087"
+
+Just POLR with Center and scaled predictors
+
+[1] "Stake: 1662"
+[1] "Gain: 341.08"
+[1] "Gain [%]: 20.5222623345367"
+[1] "Value Diff [%]: -1.94653631971316"
+[1] "Accuracy [%]: 52.483660130719"
+[1] "Booky Accuracy [%]: 50.6535947712418"
+
+
+    ############ ENGLAND ##################
