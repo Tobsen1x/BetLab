@@ -1,47 +1,99 @@
+createModelConfigEntry <- function(name, tGrid, meth, formula, preProc = NULL, ntree = NULL) {
+    result <- list('modelName' = name, 'tuneGrid' = tGrid, 'method' = meth, 
+                   'formula' = formula,
+                   'preProcess' = preProc, 'ntree' = ntree)
+    return(result)
+}
+
+initHomeVisitorConfig <- function(name, tGrid, meth, homeFormula, 
+                                  visitorsFormula, preProc = NULL, ntree = NULL) {
+    homeConf <- createModelConfigEntry(name, tGrid, meth, homeFormula, 
+                                       preProc, ntree)
+    visitorsConf <- createModelConfigEntry(name, tGrid, meth, visitorsFormula, 
+                                           preProc, ntree)
+    return(list(homeConf, visitorsConf))
+}
+
+createRfModelConfigs <- function(mtrys, ntrees, hFormula, vFormula) {
+    configs <- list()
+    # TEST
+    #aktMtry <- 2
+    #aktNtree <- 250
+    #hFormula <- homeGoalFormula
+    #vFormula <- visitorsGoalFormula
+    for(aktMtry in mtrys) {
+        for(aktNtree in ntrees) {
+            aktGrid <- expand.grid(.mtry = aktMtry)
+            hvConfigs <- initHomeVisitorConfig(NA, aktGrid, meth = 'rf', homeFormula = hFormula,
+                                             visitorsFormula = vFormula, ntree = aktNtree)
+            
+            hvConfigs[[1]]$modelName <- paste('home_rf_', aktMtry, '_', aktNtree)
+            hvConfigs[[2]]$modelName <- paste('visitors_rf_', aktMtry, '_', aktNtree)
+            
+            configs <- append(configs, hvConfigs)
+        }
+    }
+    return(configs)
+}
+
+createKnnModelConfigs <- function(ks, hFormula, vFormula) {
+    configs <- list()
+    for(aktK in ks) {
+        aktGrid <- expand.grid(.k = aktK)
+        hvConfigs <- initHomeVisitorConfig(NA, aktGrid, meth = 'knn', homeFormula = hFormula,
+                                           visitorsFormula = vFormula)
+        hvConfigs[[1]]$modelName <- paste('home_knn_', aktK)
+        hvConfigs[[2]]$modelName <- paste('visitors_knn_', aktK)
+        
+        configs <- append(configs, hvConfigs)
+    }
+    return(configs)
+}
+
 # Generic function for fitting
-trainModel <- function(resultFormula, train, meth, prePr = NULL,
-                       tControl, seed, tGrid = NULL) {
+trainModel <- function(formula, train, meth, prePr = NULL,
+                       tControl, seed, tGrid = NULL, ntree = NULL,
+                       distr = 'multinomial', metr = 'Accuracy') {
     if(meth == 'rf') {
         set.seed(seed)
-        model <- caret:::train(form = resultFormula, data = train, method = meth,
+        model <- caret:::train(form = formula, data = train, method = meth,
                                preProcess = prePr, trControl = tControl, 
-                               ntree = 1000, importance = TRUE, tuneGrid = tGrid)
+                               ntree = ntree, importance = TRUE, tuneGrid = tGrid,
+                               metric = metr)
+    } else if(meth == 'gbm') {
+        set.seed(seed)
+        model <- caret:::train(form = formula, data = train, method = meth,
+                               preProcess = prePr, trControl = tControl, 
+                               verbose = FALSE, tuneGrid = tGrid, distribution = distr,
+                               metric = metr)
     } else {
         set.seed(seed)
-        model <- caret:::train(form = resultFormula, data = train, method = meth,
+        model <- caret:::train(form = formula, data = train, method = meth,
                                preProcess = prePr,
-                               trControl = tControl)
+                               trControl = tControl, tuneGrid = tGrid,
+                               metric = metr)
     }
     
     return(model)
 }
 
-iterativelyPredict <- function(splits, folds, resultFormula, meth, 
-                               prePr = NULL, tControl, seed, tGrid = NULL) {
-    allPredictions <- data.frame()
-    for(i in 1:folds) {
-        actTrain <- splits[[i]]$train
-        actTest <- splits[[i]]$test
-        
-        
-        model <- trainModel(resultFormula, train = actTrain, meth = meth,
-                            prePr = prePr,
-                            tControl = tControl,
-                            seed = seed, tGrid = tGrid)
-        
-        preds <- predict(model, actTest, type = 'prob')
-        preds <- cbind('matchId' = actTest$matchId,
-                       'matchResult' = actTest$matchResult,
-                       preds)
-        
-        if(nrow(allPredictions) == 0) {
-            allPredictions <- preds
-        } else {
-            allPredictions <- rbind(allPredictions, preds)
-        }
+# TEST
+#modelConfigList <- allModelConfigs
+#trainset <- filteredNormalMatches
+#tContr <- noneContr
+#aktConfig <- allModelConfigs[[1]]
+trainModels <- function(modelConfigList, trainset, tContr, seed) {   
+    models <- list()
+    for(aktConfig in modelConfigList) {
+        aktModel <- trainModel(aktConfig$formula, trainset, aktConfig$method, aktConfig$preProcess,
+                               tControl = tContr, seed = seed, tGrid = aktConfig$tuneGrid,
+                               ntree = aktConfig$ntree)
+        aktList <- list(aktModel)
+        names(aktList) <- aktConfig$modelName
+        models <- append(models, aktList)
     }
     
-    return(allPredictions)
+    return(models)
 }
 
 
@@ -92,69 +144,10 @@ simulate <- function(normalMatches, predAufstellungMatches,
     return(allPredictions)
 }
 
-fitRegressionModels <- function(trainset, resultFormula, modelNamePrefix,
-                     tcontr = trainControl(method = 'none')) {  
-    enetGrid <- expand.grid(.fraction = 1, .lambda = 0.0004)
-    enetModel <- train(resultFormula, data = trainset, method = 'enet', preProcess = c('center', 'scale'),
-                     trControl = tcontr, tuneGrid = enetGrid)
-    
-    rfGrid <- expand.grid(.mtry = c(2))
-    rfModel <- train(resultFormula, data = trainset, method = 'rf', trControl = tcontr, tuneGrid = rfGrid)
-    
-    #bstTreeModel <- train(resultFormula, data = trainset, method = 'bstTree', trControl = tcontr)
-    
-    #gbmModel <- train(resultFormula, data = trainset, method = 'gbm', trControl = tcontr, 
-    #                  verbose = FALSE)
-    
-    #knn5Grid <- expand.grid(.k = c(5))
-    #knn5Model <- train(resultFormula, data = trainset, method = 'knn', 
-    #                   trControl = tcontr, tuneGrid = knn5Grid, preProcess = c('center', 'scale'))
-    
-    knn20Grid <- expand.grid(.k = c(20))
-    knn20Model <- train(resultFormula, data = trainset, method = 'knn', 
-                        trControl = tcontr, tuneGrid = knn20Grid, preProcess = c('center', 'scale'))
-    
-    #knn50Grid <- expand.grid(.k = c(50))
-    #knn50Model <- train(resultFormula, data = trainset, method = 'knn', 
-    #                    trControl = tcontr, tuneGrid = knn50Grid, preProcess = c('center', 'scale'))
-    
-    #knn100Grid <- expand.grid(.k = c(100))
-    #knn100Model <- train(resultFormula, data = trainset, method = 'knn', 
-    #                     trControl = tcontr, tuneGrid = knn100Grid, preProcess = c('center', 'scale'))
-    
-    ### Choose relevant models
-    modelNames <- c(paste(modelNamePrefix, 'enet', sep = '_'),
-                    paste(modelNamePrefix, 'rf', sep = '_'),
-                    paste(modelNamePrefix, 'knn20', sep = '_'))
-    relModels <- list(enetModel, rfModel, knn20Model)
-    names(relModels) <- modelNames
-    
-    return(relModels)
-    
-    
-        ###     Simple polr model       ###
-    #resultTrain <- dplyr:::select(featuredMatches, -c(matchId, goalDiff))
-    #set.seed(seed)
-    #install.packages('e1071')
-    #library(e1071)
-    #polrModel <- train(resultFormula, data = resultTrain, method = 'polr',
-    #                   preProcess = c('center', 'scale'),
-    #                   trControl = tcontr)
-    #
-    #rfTuneGrid <- expand.grid(.mtry = seq(2, 26, by = 1))
-    #rfModel <- train(resultFormula, data = resultTrain, method = 'rf', tuneGrid = rfTuneGrid,
-    #                 trControl = tcontr, ntrees = 1000)
-    #modelList <- list('polr' = polrModel, 'rf' = rfModel)
-    #return(modelList)
-    #
-    #return(polrModel)
-}
-
-
 
 # Split the matches into different folds. Each fold serving as testset.
 # Remaining data is split into two different training sets.
-splitMatches <- function(matchesToSplit, trainingSetRest = NA, 
+splitMatches <- function(matchesToSplit, splitBy, trainingSetRest = NA, 
                          testingMatches, folds, seed = 1234) {
     require(caret)
     require(dplyr)
@@ -165,7 +158,7 @@ splitMatches <- function(matchesToSplit, trainingSetRest = NA,
     
     # Split data
     set.seed(seed)
-    testFold <- createFolds(matchesToSplit$matchResult, k = folds,
+    testFold <- createFolds(splitBy, k = folds,
                             list = FALSE)
     matchesToSplit <- cbind(matchesToSplit, testFold)
     

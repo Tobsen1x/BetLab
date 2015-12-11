@@ -254,9 +254,14 @@ loadTrainingData <- function(toMatchday, seasons,
     matchQuery <- sprintf('select sp.id as matchId, 
         sp.liga as league, sp.saison as season, sp.spieltag as matchday, 
         sp.spielZeit as matchtime, sp.heimMan_id as homeTeamId, 
-        sp.auswMan_id as visitorsTeamId, sp.toreHeim as goalsHome,
+        sp.auswMan_id as visitorsTeamId, 
+        heimAuf.transFormation as heimFormation,
+        auswAuf.transFormation as auswFormation,
+        sp.toreHeim as goalsHome,
         sp.toreAusw as goalsVisitors
-    from spiel sp                    
+    from spiel sp
+        inner join aufstellung heimAuf on sp.heimAuf_id = heimAuf.id
+        inner join aufstellung auswAuf on sp.auswAuf_id = auswAuf.id
     where (sp.saison in (%s) OR (sp.saison = %s and sp.spieltag <= %i)) and liga in (%s)  
         order by sp.spielZeit desc, sp.id asc', 
                           seasonsStr, lastSeasonStr, toMatchday, leaguesStr)
