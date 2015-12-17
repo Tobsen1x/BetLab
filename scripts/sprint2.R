@@ -1,13 +1,17 @@
 source('./production/loadData.R', 
        echo = FALSE, encoding = 'UTF-8')
-toMatchday <- 38
+toMatchday <- 34
 seasons <- c('2005-2006', '2006-2007', '2007-2008', '2008-2009', '2009-2010',
              '2010-2011', '2011-2012', '2012-2013', '2013-2014', '2014-2015')
 leagues <- c('BL1')
-trainingRaw <- loadTrainingData(toMatchday = 38, seasons = seasons, leagues = leagues)
+trainingRaw <- loadTrainingData(toMatchday = toMatchday, seasons = seasons, leagues = leagues)
 matches <- trainingRaw$matches
 odds <- trainingRaw$odds
 stats <- trainingRaw$stats
+
+describe(select(matches, goalsHome, goalsVisitors, matchResult))
+describe(select(odds, HomeVictory, VisitorsVictory, Draw))
+describe(select(stats, fitPrice, position, playerAssignment, formation))
 
 ### Feature Engineering ###
 
@@ -18,31 +22,43 @@ source('./production/positionFeatureExtraction.R',
 #[6] "Zentrales Mittelfeld"  "Linkes Mittelfeld"     "Rechtes Mittelfeld"    "Offensives Mittelfeld" "Haengende Spitze"     
 #[11] "Mittelstuermer"        "Linksaussen"           "Rechtsaussen"
 positions <- c('tw', 'def', 'def', 'def', 'mid', 'mid', 'mid', 'mid', 'off', 'off', 'off', 'off', 'off')
-lineupAssignments <- c('DURCHGESPIELT', 'AUSGEWECHSELT')
-benchFuncts = c('max', 'avg')
+lineupAssignments <- c('DURCHGESPIELT', 'AUSGEWECHSELT', 'EINGEWECHSELT')
+#benchFuncts = c('max', 'avg')
 featuredMatches <- extractMatchResultFeatures(playerStats = stats,
                                             matches = matches,
                                             priceAssignedPositions = positions,
                                             functs = c('min', 'max', 'avg', 'sum'), 
-                                            lineupAssignments, benchFuncts)
+                                            lineupAssignments)
 
 filteredFeatureMatches <- filterFeaturedMatches(featuredMatches)
 
-#### Simple modeling ####
+explMatches <- dplyr:::select(filteredFeatureMatches, -matchId, -matchResult, -goalsHome, - goalsVisitors)
+# Features:
+colnames(explMatches)
+
+# Model Fitting
 
 source(file = './production/models.R', 
        echo = FALSE, encoding = 'UTF-8')
+seed <- 16450
 cvContr = trainControl(method = 'cv', number = 5, classProbs = TRUE, 
-                       summaryFunction = defaultSummary)
-seed <- 12570
+                       summaryFunction = multiClassSummary)
 
-noFormationModelInput <- filteredFeatureMatches[, 1:(ncol(filteredFeatureMatches) - 6)]
 resultFormula <- as.formula('matchResult ~ . -matchId -goalsHome -goalsVisitors')
 
-polrModel <- trainModel(formula = resultFormula, train = noFormationModelInput, 
-                        meth = 'polr', prePr = c('center', 'scale'), 
-                        tControl = cvContr, seed = seed)
-polrModel
+#### Simple POLR model ####
+set.seed(seed)
+polrModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'polr',
+                   preProcess = c('center', 'scale'),
+                   trControl = cvContr)
+
+# Resampled Training Performance
+dplyr:::select(polrModel$results, Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
+testPred <- predict(polrModel, filteredFeatureMatches)
+confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
+# Training Performance without resampling
+confMatrix$overall[1:2]
+
 
 ### gbm ###
 #library(devtools)
@@ -59,62 +75,123 @@ sourceDir('../gbm/R/', trace = FALSE,
           echo = FALSE, encoding = 'UTF-8')
 
 # in problems where there are a low percentage of samples in one class, 
-#using metric = "Kappa" can improve quality of the final model
+# using metric = "Kappa" can improve quality of the final model
+metricString <- 'Accuracy'
 
-gbmGrid <- expand.grid(.interaction.depth = 1:5,
-                       .n.trees = (1:10)*15, .shrinkage = c(.025, .05, .075), .n.minobsinnode = c(10, 15, 20))
-gbmModel <- trainModel(formula = resultFormula, train = noFormationModelInput, 
-                       meth = 'gbm', tControl = cvContr, 
-                       seed = seed, tGrid = gbmGrid, metr = 'Kappa')
-gbmModel
+gbmGrid <- expand.grid(.interaction.depth = c(1, 5, 9),
+                       .n.trees = (1:10)*100, .shrinkage = c(.05, .1), .n.minobsinnode = c(15, 20))
+set.seed(seed)
+gbmModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'gbm',
+                  trControl = cvContr, verbose = FALSE, 
+                  tuneGrid = gbmGrid, distribution = 'multinomial',
+                  metric = metricString)
+bestGbm <- dplyr:::select(gbmModel$results, shrinkage, interaction.depth, n.minobsinnode, 
+                          n.trees, Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
+bestGbm <- dplyr:::filter(bestGbm, shrinkage == gbmModel$bestTune[1, 'shrinkage'],
+                          interaction.depth == gbmModel$bestTune[1, 'interaction.depth'],
+                          n.minobsinnode == gbmModel$bestTune[1, 'n.minobsinnode'],
+                          n.trees == gbmModel$bestTune[1, 'n.trees'])
+# Best model performance
+bestGbm
+
+# Plotting the resampling profile
+trellis.par.set(caretTheme())
+plot(gbmModel)
+
+## Fine tuning
+
+gbmGrid2 <- expand.grid(.interaction.depth = c(1:3),
+                       .n.trees = (1:5)*25, .shrinkage = c(0.025, .05, .075), .n.minobsinnode = c(15, 20))
+set.seed(seed)
+gbmModel2 <- train(form = resultFormula, data = filteredFeatureMatches, method = 'gbm',
+                  trControl = cvContr, verbose = FALSE, 
+                  tuneGrid = gbmGrid2, distribution = 'multinomial',
+                  metric = metricString)
+bestGbm2 <- dplyr:::select(gbmModel2$results, shrinkage, interaction.depth, n.minobsinnode, 
+                          n.trees, Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
+bestGbm2 <- dplyr:::filter(bestGbm2, shrinkage == gbmModel2$bestTune[1, 'shrinkage'],
+                          interaction.depth == gbmModel2$bestTune[1, 'interaction.depth'],
+                          n.minobsinnode == gbmModel2$bestTune[1, 'n.minobsinnode'],
+                          n.trees == gbmModel2$bestTune[1, 'n.trees'])
+# Best model performance
+bestGbm2
+
+# Plotting the resampling profile
+trellis.par.set(caretTheme())
+plot(gbmModel2)
 
 # Plotting the resampling profile
 trellis.par.set(caretTheme())
 plot(gbmModel)
 plot(gbmModel, metric = 'Kappa')
 
-# choosing final gbm fit
-bestKappaGbm <- tolerance(gbmModel$results, metric = "Kappa",
-                         tol = 1, maximize = TRUE)
-bestGbmResult <- gbmModel$results[bestKappaGbm,1:6]
-bestGbmConfig <- expand.grid(.interaction.depth = bestGbmResult$interaction.depth,
-                             .n.trees = bestGbmResult$n.trees,
-                             .shrinkage = bestGbmResult$shrinkage,
-                             .n.minobsinnode = bestGbmResult$n.minobsinnode)
+### choosing final gbm fit ###
+bestGbmConfig <- gbmModel$bestTune
 
-### rf ###
+#bestGbm <- tolerance(gbmModel$results, metric = metricString,
+#                         tol = 1, maximize = TRUE)
+#bestGbmResult <- gbmModel$results[bestGbm,1:6]
+#bestGbmConfig <- expand.grid(.interaction.depth = bestGbmResult$interaction.depth,
+#                             .n.trees = bestGbmResult$n.trees,
+#                             .shrinkage = bestGbmResult$shrinkage,
+#                             .n.minobsinnode = bestGbmResult$n.minobsinnode)
 
-rfGrid <- expand.grid(.mtry = c(2, 3, 4, 11, 12, 13))
-rfModel <- trainModel(formula = resultFormula, train = noFormationModelInput, 
-                          meth = 'rf', tControl = cvContr, 
-                          seed = seed, tGrid = rfGrid, ntree = 750, metr = 'Kappa')
-rfModel
+set.seed(seed)
+bestGbmModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'gbm',
+                  trControl = cvContr, verbose = FALSE, 
+                  tuneGrid = bestGbmConfig, distribution = 'multinomial',
+                  metric = metricString)
+bestGbmModel
+getTrainPerf(bestGbmModel)
 
-# Choosing final rf fit
-bestKappaRf <- tolerance(rfModel$results, metric = "Kappa",
-                         tol = 1, maximize = TRUE)
-bestRfResult <- rfModel$results[bestKappaRf,1:3]
-bestRfConfig <- expand.grid(.mtry = bestRfResult$mtry)
-bestRfConfig
+### eXtreme Gradient Boosting ###
+library(xgboost)
+extrBoostGrid <- expand.grid(nrounds = (1:15)*20,
+                          eta = c(.025, .05, .075, .1, .15),
+                          max_depth = c(1, 2, 3))
+set.seed(seed)
+extrBoostModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'xgbTree',
+                     trControl = cvContr, tuneGrid = extrBoostGrid, metric = 'Accuracy',
+                     objective = 'multi:softprob', num_class = 3, 
+                     colsample_bytree = 1, min_child_weight = 1)
 
-### Fitting final models to compare ###
-cv10Contr = trainControl(method = 'cv', number = 10, classProbs = TRUE, 
-                       summaryFunction = defaultSummary)
-polrFinalModel <- trainModel(formula = resultFormula, train = noFormationModelInput, 
-                             meth = 'polr', prePr = c('center', 'scale'), 
-                             tControl = cv10Contr, seed = seed)
-gbmFinalModel <- trainModel(formula = resultFormula, train = noFormationModelInput, 
-                       meth = 'gbm', tControl = cv10Contr, 
-                       seed = seed, tGrid = bestGbmConfig)
-rfFinalModel <- trainModel(formula = resultFormula, train = noFormationModelInput, 
-                           meth = 'rf', tControl = cv10Contr, 
-                           seed = seed, tGrid = bestRfConfig, ntree = 750)
+bestExtrBoost <- dplyr:::select(extrBoostModel$results, nrounds, max_depth, eta, 
+                                Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
+bestExtrBoost <- dplyr:::filter(bestExtrBoost, nrounds == extrBoostModel$bestTune[1, 'nrounds'],
+                                max_depth == extrBoostModel$bestTune[1, 'max_depth'],
+                                eta == extrBoostModel$bestTune[1, 'eta'])
+bestExtrBoost 
+
+# Training Performance without resampling
+testPred <- predict(extrBoostModel, filteredFeatureMatches)
+confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
+confMatrix$overall[1:2]
+
+# Plotting the resampling profile
+trellis.par.set(caretTheme())
+plot(extrBoostModel)
+
+bestExtrBoostConfig <- extrBoostModel$bestTune
+
+### Integrate custom metric 'percentage profit' into caret train
+
+customGrid <- trainControl(method = 'cv', number = 5, classProbs = TRUE,
+                           summaryFunction = betMetricsSummary)
+set.seed(seed)
+testModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'polr',
+                        trControl = customGrid)
+# Explore
+data
+
+View(filteredFeatureMatches[728:730,])
+
+
 
 #### Exploring Performance Distributions within Resamples ####
 
-resamps <- resamples(list(GBM = gbmFinalModel,
-                          RF = rfFinalModel,
-                          POLR = polrFinalModel))
+resamps <- resamples(list(POLR = polrModel,
+                          GBM = gbmModel,
+                          EXTRBOOST = extrBoostModel))
 
 trellis.par.set(caretTheme())
 bwplot(resamps, layout = c(3, 1))
@@ -129,31 +206,40 @@ dotplot(difValues)
 
 
 #### Comparison to Booky Odds ####
-noneContr = trainControl(method = 'none', classProbs = TRUE)
+source(file = './evaluatePrediction.R', 
+       echo = FALSE, encoding = 'UTF-8')
+bookySummary <- getBookyPerformance(odds = odds, matches = matches)
+bookySummary
+
 folds <- 10
-seed <- 12574
+noneContr <- trainControl(method = 'none', classProbs = TRUE)
 
 # Split Data
-splits <- splitMatches(matchesToSplit = noFormationModelInput, splitBy = noFormationModelInput$matchResult,
-                       testingMatches = noFormationModelInput, folds = folds, seed = seed)
+splits <- splitMatches(matchesToSplit = filteredFeatureMatches, splitBy = filteredFeatureMatches$matchResult,
+                       testingMatches = filteredFeatureMatches, folds = folds, seed = seed)
 
-# Predict goals with configured models
+# Resampling
 allPredictions <- data.frame()
 for(i in 1:folds) {
     actTrain <- splits[[i]]$train
     actTest <- splits[[i]]$test
     
-    actPolrFit <- trainModel(formula = resultFormula, train = actTrain, 
-                                 meth = 'polr', prePr = c('center', 'scale'), 
-                                 tControl = noneContr, seed = seed)
-    actGbmFit <- trainModel(formula = resultFormula, train = actTrain, 
-                                meth = 'gbm', tControl = noneContr, 
-                                seed = seed, tGrid = bestGbmConfig)
-    actRfFit <- trainModel(formula = resultFormula, train = actTrain, 
-                               meth = 'rf', tControl = noneContr, 
-                               seed = seed, tGrid = bestRfConfig, ntree = 750)
+    set.seed(seed)
+    actPolrFit <- caret:::train(form = resultFormula, data = actTrain, 
+                                method = 'polr', preProcess = c('center', 'scale'),
+                                trControl = cvContr)
+    set.seed(seed)
+    actGbmFit <- caret:::train(form = resultFormula, data = actTrain, 
+                               method = 'gbm', trControl = noneContr,
+                               verbose = FALSE, distribution = 'multinomial',
+                               tuneGrid = bestGbmConfig)
     
-    models <- list('POLR' = actPolrFit, 'GBM' = actGbmFit, 'RF' = actRfFit)
+    actExtrBoostFit <- caret:::train(form = resultFormula, data = actTrain, method = 'xgbTree',
+                            trControl = noneContr, tuneGrid = bestExtrBoostConfig,
+                            objective = 'multi:softprob', num_class = 3, 
+                            colsample_bytree = 1, min_child_weight = 1)
+    
+    models <- list('POLR' = actPolrFit, 'GBM' = actGbmFit, 'EXTRBOOST' = actExtrBoostFit)
     
     preds <- predict(models, actTest, type = 'prob')
     preds <- do.call(cbind.data.frame, preds)
@@ -172,31 +258,89 @@ source(file = './evaluatePrediction.R',
        echo = FALSE, encoding = 'UTF-8')
 allPredictions <- arrange(allPredictions, matchId)
 polrPreds <- dplyr:::select(allPredictions, matchId, matchResult, 
-                    'HomeVictory' = POLR.HomeVictory, 
-                    'VisitorsVictory' = POLR.VisitorsVictory,
-                    'Draw' = POLR.Draw)
+                            'HomeVictory' = POLR.HomeVictory, 
+                            'VisitorsVictory' = POLR.VisitorsVictory,
+                            'Draw' = POLR.Draw)
 polrEvals <- evaluatePrediction(prediction = polrPreds, 
-                                  comparison = odds, 
-                                  probRatioToBet = 1.1, stake = 1)
+                                comparison = odds, 
+                                probRatioToBet = 1.1, stake = 1)
 printEvaluation(polrEvals)
 
 gbmPreds <- dplyr:::select(allPredictions, matchId, matchResult, 
-                            'HomeVictory' = GBM.HomeVictory, 
-                            'VisitorsVictory' = GBM.VisitorsVictory,
-                            'Draw' = GBM.Draw)
+                           'HomeVictory' = GBM.HomeVictory, 
+                           'VisitorsVictory' = GBM.VisitorsVictory,
+                           'Draw' = GBM.Draw)
 gbmEvals <- evaluatePrediction(prediction = gbmPreds, 
-                                comparison = odds, 
-                                probRatioToBet = 1.1, stake = 1)
-printEvaluation(gbmEvals)
-
-rfPreds <- dplyr:::select(allPredictions, matchId, matchResult, 
-                           'HomeVictory' = RF.HomeVictory, 
-                           'VisitorsVictory' = RF.VisitorsVictory,
-                           'Draw' = RF.Draw)
-rfEvals <- evaluatePrediction(prediction = rfPreds, 
                                comparison = odds, 
                                probRatioToBet = 1.1, stake = 1)
-printEvaluation(rfEvals)
+printEvaluation(gbmEvals)
+
+extrBoostPreds <- dplyr:::select(allPredictions, matchId, matchResult, 
+                          'HomeVictory' = EXTRBOOST.HomeVictory, 
+                          'VisitorsVictory' = EXTRBOOST.VisitorsVictory,
+                          'Draw' = EXTRBOOST.Draw)
+extrBoostEvals <- evaluatePrediction(prediction = extrBoostPreds, 
+                              comparison = odds, 
+                              probRatioToBet = 1.1, stake = 1)
+printEvaluation(extrBoostEvals)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### rf ####
+
+rfNtree <- 1000
+rfGrid <- expand.grid(.mtry = seq(2, ncol(filteredFeatureMatches) - 4, by = 3))
+set.seed(seed)
+rfModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'rf',
+                 trControl = cvContr, ntree = rfNtree, importance = TRUE, tuneGrid = rfGrid,
+                 metric = 'Accuracy')
+bestRf <- dplyr:::select(rfModel$results, mtry, Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
+bestRf <- dplyr:::filter(bestRf, mtry == rfModel$bestTune[1, 1])
+bestRf
+
+testPred <- predict(rfModel, filteredFeatureMatches)
+confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
+# Training Performance without resampling
+confMatrix$overall[1:2]
+
+
+
+trellis.par.set(caretTheme())
+plot(rfModel)
+
+## Choosing final rf fit
+bestRfConfig <- rfModel$bestTune
+set.seed(seed)
+bestRfModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'rf',
+                 trControl = cvContr, ntree = rfNtree, importance = TRUE, tuneGrid = bestRfConfig,
+                 metric = metricString)
+bestRfModel
+
+
+#bestRf <- tolerance(rfModel$results, metric = metricString,
+#                         tol = 1, maximize = TRUE)
+#bestRfResult <- rfModel$results[bestRf,1:3]
+#bestRfConfig <- expand.grid(.mtry = bestRfResult$mtry)
+#bestRfConfig
+
 
 
 

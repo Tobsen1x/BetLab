@@ -122,6 +122,25 @@ evaluatePrediction <- function(prediction, comparison = odds, probRatioToBet = 1
          stake = stake, gain = gain, placedBets = placedBets)
 }
 
+getBookyPerformance <- function(odds, matches) {
+    smallMatches <- dplyr:::select(matches, matchId, matchResult)
+    mergedOdds <- merge(odds, smallMatches)
+    mergedOdds <- dplyr:::select(mergedOdds, HomeVictory, VisitorsVictory, Draw, matchResult)
+    finalOdds <- dplyr:::mutate(mergedOdds, bookyOutcome = ifelse(HomeVictory > VisitorsVictory &
+                                                         HomeVictory > Draw, 'HomeVictory',
+                                                     ifelse(VisitorsVictory > HomeVictory &
+                                                                VisitorsVictory > Draw, 'VisitorsVictory',
+                                                            'Draw')))
+    finalOdds <- dplyr:::mutate(finalOdds, bookyOutcome = 
+                                     factor(bookyOutcome, levels = c('VisitorsVictory', 'Draw', 'HomeVictory'), 
+                                            labels = c('VisitorsVictory', 'Draw', 'HomeVictory'), 
+                                            ordered = TRUE))
+    finalOdds <- dplyr:::rename(finalOdds, obs = matchResult, pred = bookyOutcome)
+    
+    summary <- multiClassSummary(finalOdds, lev = levels(finalOdds$obs))
+    return(summary)
+}
+
 printEvaluation <- function(evalList) {
     print(paste('Stake:', evalList$stake))
     print(paste('Gain:', evalList$gain))

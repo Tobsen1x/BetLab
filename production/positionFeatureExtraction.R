@@ -53,7 +53,8 @@ addDerivedFeatures <- function(featuredMatches, infiniteReplacement = log(10)) {
 #benchFuncts = c('max', 'avg')
 extractMatchResultFeatures <- function(playerStats, matches, 
                                        priceAssignedPositions, functs,
-                                       relNormalAssignments = NA, benchFuncts) {
+                                       relNormalAssignments = NA, 
+                                       benchFuncts = NA) {
     ### Assemble relevant positions
     # Grouping positions
     colNames <- levels(playerStats$position)
@@ -61,19 +62,20 @@ extractMatchResultFeatures <- function(playerStats, matches,
     colnames(groupedPositions) <- colNames
     playerStats$groupedStaticPosition <- sapply(playerStats$staticPosition, FUN = function(x) groupedPositions[1, x])
     
-    # For bench features just take positions def, mid, off
-    benchPositions <- unique(priceAssignedPositions)
-    benchPositions <- benchPositions[!benchPositions %in% 'tw']
-    
     # Name position - price
     featureNames <- sapply(unique(priceAssignedPositions), getFeatureName, 
                            group = 'Price', home = TRUE, functs = functs)
     featureNames <- c(featureNames, sapply(unique(priceAssignedPositions), getFeatureName, 
                                            group = 'Price', home = FALSE, functs = functs))
-    featureNames <- c(featureNames, sapply(benchPositions, getFeatureName, 
-                                           group = 'Bench', home = TRUE, functs = benchFuncts))
-    featureNames <- c(featureNames, sapply(benchPositions, getFeatureName, 
-                                           group = 'Bench', home = FALSE, functs = benchFuncts))
+    if(!is.na(benchFuncts)) {
+        # For bench features just take positions def, mid, off
+        benchPositions <- unique(priceAssignedPositions)
+        benchPositions <- benchPositions[!benchPositions %in% 'tw']
+        featureNames <- c(featureNames, sapply(benchPositions, getFeatureName, 
+                                               group = 'Bench', home = TRUE, functs = benchFuncts))
+        featureNames <- c(featureNames, sapply(benchPositions, getFeatureName, 
+                                               group = 'Bench', home = FALSE, functs = benchFuncts))
+    }
     
     # set col names
     for(name in featureNames) {
@@ -90,18 +92,17 @@ extractMatchResultFeatures <- function(playerStats, matches,
         }
     }   
     
-    # extract Formations
-    majorityVoteFormation <- which.max(table(matches$heimFormation))
-    matches$heimFormation[is.na(matches$heimFormation)] <- majorityVoteFormation
-    matches$auswFormation[is.na(matches$auswFormation)] <- majorityVoteFormation
-   
-    groupedFormationTable <- createGroupedFormationTable(factor(matches$heimFormation))
-    merged <- merge(matches, groupedFormationTable, by.x = 'heimFormation', by.y = 'formation', sort = FALSE)
-    merged <- rename(merged, heimGroupedFormation = group1)
-    merged <- merge(merged, groupedFormationTable, by.x = 'auswFormation', by.y = 'formation', sort = FALSE)
-    merged <- rename(merged, auswGroupedFormation = group1)    
+    # extract Formations --> Exclude for now
+    #majorityVoteFormation <- which.max(table(matches$heimFormation))
+    #matches$heimFormation[is.na(matches$heimFormation)] <- majorityVoteFormation
+    #matches$auswFormation[is.na(matches$auswFormation)] <- majorityVoteFormation
+    #groupedFormationTable <- createGroupedFormationTable(factor(matches$heimFormation))
+    #merged <- merge(matches, groupedFormationTable, by.x = 'heimFormation', by.y = 'formation', sort = FALSE)
+    #merged <- rename(merged, heimGroupedFormation = group1)
+    #merged <- merge(merged, groupedFormationTable, by.x = 'auswFormation', by.y = 'formation', sort = FALSE)
+    #merged <- rename(merged, auswGroupedFormation = group1)    
     
-    return(merged)
+    return(matches)
 }
 
 # TEST
@@ -206,8 +207,8 @@ extractFeature <- function(feaStats, func) {
 filterFeaturedMatches <- function(featuredMatches) {
     relevantFeatureMatches <- dplyr::select(featuredMatches, matchId, matchResult, goalsHome, goalsVisitors,
                                             grep(pattern = 'Price', colnames(featuredMatches)),
-                                            grep(pattern = 'Bench', colnames(featuredMatches)),
-                                            heimGroupedFormation, auswGroupedFormation)
+                                            grep(pattern = 'Bench', colnames(featuredMatches))) #,
+    #                                        heimGroupedFormation, auswGroupedFormation)
     ind <- apply(relevantFeatureMatches, 1, function(x) !any(is.na(x)))
     relevantFeatureMatches <- relevantFeatureMatches[ind, ]
     relevantFeatureMatches <- dplyr:::select(relevantFeatureMatches, -tw_Price_Home_min, -tw_Price_Home_max,
@@ -215,10 +216,10 @@ filterFeaturedMatches <- function(featuredMatches) {
                                              -tw_Price_Visitors_sum)
     
     # Create dummy vars for Formations
-    dummies <- dummyVars(~ heimGroupedFormation + auswGroupedFormation, data = relevantFeatureMatches)
-    predDummies <- predict(dummies, relevantFeatureMatches)
-    finalMatches <- cbind(relevantFeatureMatches, as.data.frame(predDummies))
-    finalMatches <- dplyr:::select(finalMatches, -heimGroupedFormation, -auswGroupedFormation)
+    #dummies <- dummyVars(~ heimGroupedFormation + auswGroupedFormation, data = relevantFeatureMatches)
+    #predDummies <- predict(dummies, relevantFeatureMatches)
+    #finalMatches <- cbind(relevantFeatureMatches, as.data.frame(predDummies))
+    #finalMatches <- dplyr:::select(finalMatches, -heimGroupedFormation, -auswGroupedFormation)
     
-    return(finalMatches)
+    return(relevantFeatureMatches)
 }

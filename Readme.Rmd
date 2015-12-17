@@ -7,8 +7,8 @@ output: pdf_document
 
 ## Abstract
 
-The Betlab Project aims to predict the outcome of football matches. The predictions are compared with booky odds to place value bets. To predict the outcome, the market prices of the participating players are analysed because they are assumed to represent the base quality of a player.
-The main metric to evaluate model performance is the simulated earning with respect to the booky odds.
+The target of the Betlab project is to find the best model predicting the outcome (HomeVictory, Draw, VisitorsVictory) of football matches.
+The best predicted probability simulates the highest percentage profit in relation to booky odds (Value Betting). The fundamental predictors are the aggregated marketprices of the participating players (parsed on transfermarkt.de).
 
 I show the high potential of my approach, even if it is not yet practicable.
 
@@ -16,7 +16,7 @@ I show the high potential of my approach, even if it is not yet practicable.
 
 The match, team and player data are collected from [Transfermarkt](http://www.transfermarkt.de/). Booky odds are collected from [Sfstats](http://de.sfstats.net/). The parsers are written in Java and are not part of this paper.
 
-Relevant data will be of germanies 1. Bundesliga from season 2005-2006 to 2014-2015.
+Relevant data will be of germanies 1. Bundesliga from season 2005-2006 to 2014-2015. I included the english premier league too, but focus here for simplicity on BL1.
 
 ```{r warning=FALSE, message=FALSE, cache=TRUE}
 source(file = 'production/loadData.R', echo = FALSE, encoding = 'UTF-8') 
@@ -37,38 +37,41 @@ matches -> contains all matches
 odds -> contains booky odds and probabilies for all matches  
 stats -> an observation contains information for one player in one match  
 
+Here is a brief exploration of the raw data:
 ```{r warning=FALSE, message=FALSE}
-describe(select(matches, goalsHome, goalsVisitors, matchResult))
-describe(select(odds, HomeVictory, VisitorsVictory, Draw))
-describe(select(stats, fitPrice, position, playerAssignment, formation))
+describe(dplyr:::select(matches, goalsHome, goalsVisitors, matchResult))
+describe(dplyr:::select(odds, HomeVictory, VisitorsVictory, Draw))
+describe(dplyr:::select(stats, fitPrice, position, playerAssignment, formation))
 ```
+
 
 ## Feature Engineering
 
-The features I extract are the marketprices of participating players aggregated by team, grouped position and aggregation method.
-Participating players are those who played the whole match, came from the bench or got substituted. Grouped positions are goaly, defense, midfield and offense. Aggregation methods are: min, max, mean and sum.
+The features I extract are the marketprices of participating players aggregated by team (Home, Visitors), grouped position (TW, DEF, MID, OFF) and aggregation method (min, max, avg, sum).
+My first analysis is on including the players who played the whole match, who got substituted from bench and to bench. This is not practicable because I have an unrealistic information advantage in comparison to the booky. I stick to this approach at first, because I don't expect the advantage as big and I want to show the potential of this approach.
 
 ```{r warning=FALSE, message=FALSE, cache=TRUE}
-source('production/positionFeatureExtraction.R', 
+source('./production/positionFeatureExtraction.R', 
        echo = FALSE, encoding = 'UTF-8')
 ### Preparation
 #[1] "Torwart"               "Innenverteidiger"      "Linker Verteidiger"    "Rechter Verteidiger"   "Defensives Mittelfeld"
 #[6] "Zentrales Mittelfeld"  "Linkes Mittelfeld"     "Rechtes Mittelfeld"    "Offensives Mittelfeld" "Haengende Spitze"     
 #[11] "Mittelstuermer"        "Linksaussen"           "Rechtsaussen"
 positions <- c('tw', 'def', 'def', 'def', 'mid', 'mid', 'mid', 'mid', 'off', 'off', 'off', 'off', 'off')
-relNormalAssignments <- c('DURCHGESPIELT', 'EINGEWECHSELT', 'AUSGEWECHSELT')
-normalMatches <- extractMatchResultFeatures(playerStats = stats,
+lineupAssignments <- c('DURCHGESPIELT', 'AUSGEWECHSELT', 'EINGEWECHSELT')
+#benchFuncts = c('max', 'avg')
+featuredMatches <- extractMatchResultFeatures(playerStats = stats,
                                             matches = matches,
                                             priceAssignedPositions = positions,
                                             functs = c('min', 'max', 'avg', 'sum'), 
-                                            relNormalAssignments)
-
-filteredNormalMatches <- filterFeaturedMatches(normalMatches)
+                                            lineupAssignments)
+# Selects the relevant predictors and outcomes
+filteredFeatureMatches <- filterFeaturedMatches(featuredMatches)
 ```
 
 
 ```{r warning=FALSE, message=FALSE}
-explMatches <- select(filteredNormalMatches, -matchId, -matchResult, -goalDiff)
+explMatches <- dplyr:::select(filteredFeatureMatches, -matchId, -matchResult, -goalsHome, - goalsVisitors)
 # Features:
 colnames(explMatches)
 ```
@@ -98,74 +101,293 @@ avgPlot <- ggplot(filter(groupedMatches, funct == 'avg'), aes(x = position, y = 
 avgPlot
 ```
 
+No surprise here, offensive players are the most expensive.
+
 ## Model fitting
 
+Now I fit several models with several different configurations. The fitting process is devided 
+into two parts. First different models are tuned for optimizing common metrics like accuracy, kappa, ROC.
+Second, the best model configurations are used to resample again to predict the target performance metric 'percentage gain'.
+The first step is necessary by now, because to discard it I have to integrate this custom percentage metric into carets fitting process.
+
+### Configuration of the fitting process
+
+I use 5-fold cross validation for calculation time performance first, later 10-fold would be probably better.
 ```{r warning=FALSE, message=FALSE}
-seed <- 1834
-tcontr = trainControl(method = 'cv', number = 20, classProbs = TRUE)
-train <- dplyr:::select(filteredNormalMatches, -goalDiff)
-resultFormula <- as.Formula('matchResult ~ . - matchId')
+source(file = './production/models.R', 
+       echo = FALSE, encoding = 'UTF-8')
+seed <- 16450
+cvContr = trainControl(method = 'cv', number = 5, classProbs = TRUE, 
+                       summaryFunction = multiClassSummary)
+
+resultFormula <- as.formula('matchResult ~ . -matchId -goalsHome -goalsVisitors')
+```
+
+
+### POLR model
+
+First I fit a linear POLR model for simplicity and because it regards the outcome as an ordered factor.
+
+```{r warning=FALSE, message=FALSE, cache=TRUE}
 set.seed(seed)
-polrModel <- train(resultFormula, data = train, method = 'polr',
+polrModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'polr',
                    preProcess = c('center', 'scale'),
-                   trControl = tcontr)
-polrModel
+                   trControl = cvContr)
+
+# Resampled Training Performance
+dplyr:::select(polrModel$results, Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
+testPred <- predict(polrModel, filteredFeatureMatches)
+confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
+# Training Performance without resampling
+confMatrix$overall[1:2]
 ```
 
-## Evaluate model in comparison to booky odds
+The gap between training and resampled training accuracy and kappa is small, 
+thus I will use more complex models with lower bias.
 
-To evaluate the predictions, matches have to be predicted iteratively. For this all matches are split in 10 disjunctive validation sets. In every of the 10 iterations, a model is trained and used to predict the observations in the corresponding validation set.
+### Random forest model
+
+RF models give good predictions as well as reducing variance because it decreases tree correlations by introducing additional randomnes.
+I set the number of trees to 1000, because it is a good initial value. Accuracy is used as performance metric.
+
+```{r warning=FALSE, message=FALSE, cache=TRUE}
+rfNtree <- 1000
+rfGrid <- expand.grid(.mtry = seq(2, ncol(filteredFeatureMatches) - 4, by = 3))
+set.seed(seed)
+rfModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'rf',
+                 trControl = cvContr, ntree = rfNtree, importance = TRUE, tuneGrid = rfGrid,
+                 metric = 'Accuracy')
+bestRf <- dplyr:::select(rfModel$results, mtry, Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
+bestRf <- dplyr:::filter(bestRf, mtry == rfModel$bestTune[1, 1])
+# Best model performance
+bestRf
+
+# Training Performance without resampling
+testPred <- predict(rfModel, filteredFeatureMatches)
+confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
+confMatrix$overall[1:2]
+
+# Plotting the resampling profile
+trellis.par.set(caretTheme())
+plot(rfModel)
+```
+
+The poor resampled training performance and the perfect prediction on the not resampled training data indicates massive overfitting, thus the model has very high variance and will be discarded.
+
+### Gradiant Boosing
+
+I expect better accuracy from gbm models, because it is more complex in case of tuning.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, cache=TRUE}
+sourceDir <- function(path, trace = TRUE, ...) {
+    for (nm in list.files(path, pattern = "[.][RrSsQq]$")) {
+        if(trace) cat(nm,":")
+        source(file.path(path, nm), ...)
+        if(trace) cat("\n")
+    }
+}
+sourceDir('../gbm/R/', trace = FALSE,
+          echo = FALSE, encoding = 'UTF-8')
+```
+
+```{r warning=FALSE, message=FALSE, cache=TRUE}
+gbmGrid <- expand.grid(.interaction.depth = c(1, 5, 9),
+                       .n.trees = (1:10)*100, .shrinkage = c(.05, .1), .n.minobsinnode = c(15, 20))
+set.seed(seed)
+gbmModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'gbm',
+                  trControl = cvContr, verbose = FALSE, 
+                  tuneGrid = gbmGrid, distribution = 'multinomial',
+                  metric = 'Accuracy')
+bestGbm <- dplyr:::select(gbmModel$results, shrinkage, interaction.depth, n.minobsinnode, 
+                          n.trees, Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
+bestGbm <- dplyr:::filter(bestGbm, shrinkage == gbmModel$bestTune[1, 'shrinkage'],
+                          interaction.depth == gbmModel$bestTune[1, 'interaction.depth'],
+                          n.minobsinnode == gbmModel$bestTune[1, 'n.minobsinnode'],
+                          n.trees == gbmModel$bestTune[1, 'n.trees'])
+# Best model performance
+bestGbm
+
+# Training Performance without resampling
+testPred <- predict(gbmModel, filteredFeatureMatches)
+confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
+confMatrix$overall[1:2]
+
+# Plotting the resampling profile
+trellis.par.set(caretTheme())
+plot(gbmModel)
+```
+
+Fine tuning:
+The graphs show that I should focus on a small number of interaction.depth. The gbm model is slightly more overfitted than POLR.
+
+```{r warning=FALSE, message=FALSE, cache=TRUE}
+gbmGrid2 <- expand.grid(.interaction.depth = c(1:3),
+                       .n.trees = (2:8)*100, .shrinkage = c(0.025, .05, .075), .n.minobsinnode = c(20, 25))
+set.seed(seed)
+gbmModel2 <- train(form = resultFormula, data = filteredFeatureMatches, method = 'gbm',
+                  trControl = cvContr, verbose = FALSE, 
+                  tuneGrid = gbmGrid2, distribution = 'multinomial',
+                  metric = 'Accuracy')
+bestGbm2 <- dplyr:::select(gbmModel2$results, shrinkage, interaction.depth, n.minobsinnode, 
+                          n.trees, Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
+bestGbm2 <- dplyr:::filter(bestGbm2, shrinkage == gbmModel2$bestTune[1, 'shrinkage'],
+                          interaction.depth == gbmModel2$bestTune[1, 'interaction.depth'],
+                          n.minobsinnode == gbmModel2$bestTune[1, 'n.minobsinnode'],
+                          n.trees == gbmModel2$bestTune[1, 'n.trees'])
+```
+So, we found the best model:
+```{r warning=FALSE, message=FALSE}
+# Best model performance
+bestGbm2
+
+# Plotting the resampling profile
+trellis.par.set(caretTheme())
+plot(gbmModel2)
+
+# Setting best configuration for second step predictions
+bestGbmConfig <- gbmModel2$bestTune
+```
+
+### Extreme Gradient Boosting
+
+Tuning Parameters: 
+- nrounds (# Boosting Iterations)
+- max_depth (Max Tree Depth), 
+- eta (Shrinkage)
+- gamma (Minimum Loss Reduction)
+- colsample_bytree (Subsample Ratio of Columns) 
+- min_child_weight (Minimum Sum of Instance Weight)
+
+```{r warning=FALSE, message=FALSE, cache=TRUE}
+library(xgboost)
+extrBoostGrid <- expand.grid(nrounds = (1:15)*20,
+                          eta = c(.025, .05, .075, .1, .15),
+                          max_depth = c(1, 2, 3))
+set.seed(seed)
+extrBoostModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'xgbTree',
+                     trControl = cvContr, tuneGrid = extrBoostGrid, metric = 'Accuracy',
+                     objective = 'multi:softprob', num_class = 3, 
+                     colsample_bytree = 1, min_child_weight = 1)
+
+bestExtrBoost <- dplyr:::select(extrBoostModel$results, nrounds, max_depth, eta, 
+                                Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
+bestExtrBoost <- dplyr:::filter(bestExtrBoost, nrounds == extrBoostModel$bestTune[1, 'nrounds'],
+                                max_depth == extrBoostModel$bestTune[1, 'max_depth'],
+                                eta == extrBoostModel$bestTune[1, 'eta'])
+bestExtrBoost 
+
+# Training Performance without resampling
+testPred <- predict(extrBoostModel, filteredFeatureMatches)
+confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
+confMatrix$overall[1:2]
+
+# Plotting the resampling profile
+trellis.par.set(caretTheme())
+plot(extrBoostModel)
+
+bestExtrBoostConfig <- extrBoostModel$bestTune
+```
+
+
+
+## Second Level Prediction
+
+Target is to maximize percent profit in comparison to booky odds.
+First have a look at the booky performance:
 
 ```{r warning=FALSE, message=FALSE}
-source(file = 'production/models.R', 
+source(file = './evaluatePrediction.R', 
        echo = FALSE, encoding = 'UTF-8')
-test <- dplyr:::select(filteredNormalMatches, -goalDiff)
-noneContr = trainControl(method = 'none')
-folds <- 10
-splits <- splitMatches(matchesToSplit = test, 
-                       testingMatches = test, folds = folds, seed = seed)
-
-allPredictions <- iterativelyPredict(splits, folds, 
-                                     resultFormula, meth = 'polr', 
-                                     prePr = c('center', 'scale'), 
-                                     tControl = noneContr, seed = seed)
-
-source(file = 'evaluatePrediction.R', 
-       echo = FALSE, encoding = 'UTF-8')
-
-evaluations <- evaluatePrediction(prediction = allPredictions, 
-                                  comparison = odds, 
-                                  probRatioToBet = 1.1, stake = 1)
-printEvaluation(evaluations)
+bookySummary <- getBookyPerformance(odds = odds, matches = matches)
+bookySummary
 ```
 
-22 % earning is very good, the problem is, that for this calculation it is necessary to know all playing players. This is not possible in practice, you just know the starting lineup.
+Now I do resampling again to predict the percentage profit.
+
+```{r warning=FALSE, message=FALSE, cache=TRUE}
+folds <- 10
+noneContr <- trainControl(method = 'none', classProbs = TRUE)
+
+# Split Data
+splits <- splitMatches(matchesToSplit = filteredFeatureMatches, splitBy = filteredFeatureMatches$matchResult,
+                       testingMatches = filteredFeatureMatches, folds = folds, seed = seed)
+
+# Resampling
+allPredictions <- data.frame()
+for(i in 1:folds) {
+    actTrain <- splits[[i]]$train
+    actTest <- splits[[i]]$test
+    
+    set.seed(seed)
+    actPolrFit <- caret:::train(form = resultFormula, data = actTrain, 
+                        method = 'polr', preProcess = c('center', 'scale'),
+                        trControl = cvContr)
+    set.seed(seed)
+    actGbmFit <- caret:::train(form = resultFormula, data = actTrain, 
+                                method = 'gbm', trControl = noneContr,
+                                verbose = FALSE, distribution = 'multinomial',
+                                tuneGrid = bestGbmConfig)
+    
+    actExtrBoostFit <- caret:::train(form = resultFormula, data = actTrain, method = 'xgbTree',
+                            trControl = noneContr, tuneGrid = bestExtrBoostConfig,
+                            objective = 'multi:softprob', num_class = 3, 
+                            colsample_bytree = 1, min_child_weight = 1)
+    
+    models <- list('POLR' = actPolrFit, 'GBM' = actGbmFit, 'EXTRBOOST' = actExtrBoostFit)
+    
+    preds <- predict(models, actTest, type = 'prob')
+    preds <- do.call(cbind.data.frame, preds)
+    preds <- cbind('matchId' = actTest$matchId,
+                   'matchResult' = actTest$matchResult, 
+                   preds)
+    
+    if(nrow(allPredictions) == 0) {
+        allPredictions <- preds
+    } else {
+        allPredictions <- rbind(allPredictions, preds)
+    }
+}
+```
+
+## Evaluate Predictions for percentage profit
+
+```{r warning=FALSE, message=FALSE, cache=TRUE}
+source(file = './evaluatePrediction.R', 
+       echo = FALSE, encoding = 'UTF-8')
+allPredictions <- arrange(allPredictions, matchId)
+polrPreds <- dplyr:::select(allPredictions, matchId, matchResult, 
+                            'HomeVictory' = POLR.HomeVictory, 
+                            'VisitorsVictory' = POLR.VisitorsVictory,
+                            'Draw' = POLR.Draw)
+polrEvals <- evaluatePrediction(prediction = polrPreds, 
+                                comparison = odds, 
+                                probRatioToBet = 1.1, stake = 1)
+printEvaluation(polrEvals)
+
+gbmPreds <- dplyr:::select(allPredictions, matchId, matchResult, 
+                           'HomeVictory' = GBM.HomeVictory, 
+                           'VisitorsVictory' = GBM.VisitorsVictory,
+                           'Draw' = GBM.Draw)
+gbmEvals <- evaluatePrediction(prediction = gbmPreds, 
+                               comparison = odds, 
+                               probRatioToBet = 1.1, stake = 1)
+printEvaluation(gbmEvals)
+
+extrBoostPreds <- dplyr:::select(allPredictions, matchId, matchResult, 
+                          'HomeVictory' = EXTRBOOST.HomeVictory, 
+                          'VisitorsVictory' = EXTRBOOST.VisitorsVictory,
+                          'Draw' = EXTRBOOST.Draw)
+extrBoostEvals <- evaluatePrediction(prediction = extrBoostPreds, 
+                              comparison = odds, 
+                              probRatioToBet = 1.1, stake = 1)
+printEvaluation(extrBoostEvals)
+```
+
+
 
 ## Prediction with just the starting lineup
 
 This time only the players in the starting lineup are considered.
 
-```{r warning=FALSE, message=FALSE}
-relPredAufstellungAssignments <- c('DURCHGESPIELT', 'AUSGEWECHSELT')
-predAufstellungMatches <- extractMatchResultFeatures(playerStats = stats,
-                                                     matches = matches,
-                                                     priceAssignedPositions = positions,
-                                                     functs = c('min', 'max', 'avg', 'sum'), 
-                                                     relPredAufstellungAssignments)
-filteredPredAufstellungMatches <- filterFeaturedMatches(predAufstellungMatches)
-
-aufstTest <- dplyr:::select(filteredPredAufstellungMatches, -goalDiff)
-aufstSplits <- splitMatches(matchesToSplit = aufstTest, 
-                       testingMatches = aufstTest, folds = folds, seed = seed)
-
-allPredictions <- iterativelyPredict(aufstSplits, folds, 
-                                     resultFormula, meth = 'polr', 
-                                     prePr = c('center', 'scale'), 
-                                     tControl = noneContr, seed = seed)
-
-aufstEvaluations <- evaluatePrediction(prediction = allPredictions, 
-                                  comparison = odds, 
-                                  probRatioToBet = 1.1, stake = 1)
-printEvaluation(aufstEvaluations)
-```
+# TODO
 

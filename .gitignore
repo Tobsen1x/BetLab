@@ -3,3 +3,5 @@
 .RData
 *.RData
 *.Rproj
+/Readme_cache
+/Readme_files
