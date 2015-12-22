@@ -1,158 +1,3 @@
-betMetricsSummary <- function(data, lev, model) {
-    View(data)
-    print(lev)
-    print(model)
-    return(NA)
-
-}
-
-createModelConfigEntry <- function(name, tGrid, meth, formula, preProc = NULL, ntree = NULL) {
-    result <- list('modelName' = name, 'tuneGrid' = tGrid, 'method' = meth, 
-                   'formula' = formula,
-                   'preProcess' = preProc, 'ntree' = ntree)
-    return(result)
-}
-
-initHomeVisitorConfig <- function(name, tGrid, meth, homeFormula, 
-                                  visitorsFormula, preProc = NULL, ntree = NULL) {
-    homeConf <- createModelConfigEntry(name, tGrid, meth, homeFormula, 
-                                       preProc, ntree)
-    visitorsConf <- createModelConfigEntry(name, tGrid, meth, visitorsFormula, 
-                                           preProc, ntree)
-    return(list(homeConf, visitorsConf))
-}
-
-createRfModelConfigs <- function(mtrys, ntrees, hFormula, vFormula) {
-    configs <- list()
-    # TEST
-    #aktMtry <- 2
-    #aktNtree <- 250
-    #hFormula <- homeGoalFormula
-    #vFormula <- visitorsGoalFormula
-    for(aktMtry in mtrys) {
-        for(aktNtree in ntrees) {
-            aktGrid <- expand.grid(.mtry = aktMtry)
-            hvConfigs <- initHomeVisitorConfig(NA, aktGrid, meth = 'rf', homeFormula = hFormula,
-                                             visitorsFormula = vFormula, ntree = aktNtree)
-            
-            hvConfigs[[1]]$modelName <- paste('home_rf_', aktMtry, '_', aktNtree)
-            hvConfigs[[2]]$modelName <- paste('visitors_rf_', aktMtry, '_', aktNtree)
-            
-            configs <- append(configs, hvConfigs)
-        }
-    }
-    return(configs)
-}
-
-createKnnModelConfigs <- function(ks, hFormula, vFormula) {
-    configs <- list()
-    for(aktK in ks) {
-        aktGrid <- expand.grid(.k = aktK)
-        hvConfigs <- initHomeVisitorConfig(NA, aktGrid, meth = 'knn', homeFormula = hFormula,
-                                           visitorsFormula = vFormula)
-        hvConfigs[[1]]$modelName <- paste('home_knn_', aktK)
-        hvConfigs[[2]]$modelName <- paste('visitors_knn_', aktK)
-        
-        configs <- append(configs, hvConfigs)
-    }
-    return(configs)
-}
-
-# Generic function for fitting
-trainModel <- function(formula, train, meth, prePr = NULL,
-                       tControl, seed, tGrid = NULL, ntree = NULL,
-                       distr = 'multinomial', metr = 'Accuracy') {
-    if(meth == 'rf') {
-        set.seed(seed)
-        model <- caret:::train(form = formula, data = train, method = meth,
-                               preProcess = prePr, trControl = tControl, 
-                               ntree = ntree, importance = TRUE, tuneGrid = tGrid,
-                               metric = metr)
-    } else if(meth == 'gbm') {
-        set.seed(seed)
-        model <- caret:::train(form = formula, data = train, method = meth,
-                               preProcess = prePr, trControl = tControl, 
-                               verbose = FALSE, tuneGrid = tGrid, distribution = distr,
-                               metric = metr)
-    } else {
-        set.seed(seed)
-        model <- caret:::train(form = formula, data = train, method = meth,
-                               preProcess = prePr,
-                               trControl = tControl, tuneGrid = tGrid,
-                               metric = metr)
-    }
-    
-    return(model)
-}
-
-# TEST
-#modelConfigList <- allModelConfigs
-#trainset <- filteredNormalMatches
-#tContr <- noneContr
-#aktConfig <- allModelConfigs[[1]]
-trainModels <- function(modelConfigList, trainset, tContr, seed) {   
-    models <- list()
-    for(aktConfig in modelConfigList) {
-        aktModel <- trainModel(aktConfig$formula, trainset, aktConfig$method, aktConfig$preProcess,
-                               tControl = tContr, seed = seed, tGrid = aktConfig$tuneGrid,
-                               ntree = aktConfig$ntree)
-        aktList <- list(aktModel)
-        names(aktList) <- aktConfig$modelName
-        models <- append(models, aktList)
-    }
-    
-    return(models)
-}
-
-
-simulate <- function(normalMatches, predAufstellungMatches,
-                     trainingConf, testingConf, folds, seed, resultFormula,
-                     tcontr = trainControl(method = 'none')) {
-    trainingSetRest <- data.frame()
-    if('normal' %in% trainingConf) {
-        matchesToSplit <- normalMatches
-        if('predAufstellung' %in% trainingConf) {
-            trainingSetRest <- predAufstellungMatches  
-        }
-    } else if('predAufstellung' %in% trainingConf) {
-        matchesToSplit <- predAufstellungMatches
-    } else {
-        stop(' Wrong motherfuckaaa.')
-    }
-    
-    if(testingConf == 'normal') {
-        testingMatches <- normalMatches
-    } else if(testingConf == 'predAufstellung') {
-        testingMatches <- predAufstellungMatches
-    } else {
-        stop(' Warong!')
-    }
-    
-    splits <- splitMatches(matchesToSplit, trainingSetRest, testingMatches, 
-                           folds = folds, seed = seed)   
-    allPredictions <- data.frame()
-    
-    for(i in 1:folds) {
-        resultTrain <- splits[[i]]$train
-        resultTest <- splits[[i]]$test
-        
-        resultModel <- fitModels(resultTrain, resultFormula,
-                                        seed = seed, tcontr = tcontr)
-        
-        preds <- predict(resultModel, newdata = resultTest, type = 'prob')
-        testsetPredictions <- cbind(matchId = resultTest$matchId, 
-                                    matchResult = resultTest$matchResult, preds)
-        
-        if(nrow(allPredictions) == 0) {
-            allPredictions <- testsetPredictions
-        } else {
-            allPredictions <- rbind(allPredictions, testsetPredictions)
-        }
-    }
-    return(allPredictions)
-}
-
-
 # Split the matches into different folds. Each fold serving as testset.
 # Remaining data is split into two different training sets.
 splitMatches <- function(matchesToSplit, splitBy, trainingSetRest = NA, 
@@ -195,6 +40,95 @@ splitMatches <- function(matchesToSplit, splitBy, trainingSetRest = NA,
     return(allSets)
 }
 
+# Custom metric summary function
+betMetricsSummary <- function(data, lev, model, probRatioToBet = 1.1, stake = 1) {
+    metricData<- cbind('matchId' = filteredFeatureMatches[as.integer(rownames(data)), 'matchId'], data)
+    redOdds <- dplyr:::select(odds, matchId, 'bookyVisitorsVictory' = VisitorsVictory, 
+                              'bookyDraw' = Draw, 
+                              'bookyHomeVictory' = HomeVictory)
+    metricData <- merge(metricData,redOdds, sort = FALSE)
+    metricData <- dplyr:::mutate(metricData, bookyPred = factor(ifelse(bookyHomeVictory > bookyVisitorsVictory & bookyHomeVictory > bookyDraw,
+                                                          'HomeVictory', 
+                                                          ifelse(bookyVisitorsVictory > bookyHomeVictory & bookyVisitorsVictory > bookyDraw,
+                                                                 'VisitorsVictory', 'Draw')),
+                                                          levels = c('VisitorsVictory', 'Draw', 'HomeVictory'), 
+                                                          labels = c('VisitorsVictory', 'Draw', 'HomeVictory'), 
+                                                          ordered = TRUE))
+    
+    bookyMetrics <- defaultSummary(dplyr:::select(metricData, obs, 'pred' = bookyPred), lev = c('VisitorsVictory', 'Draw', 'HomeVictory'), model = model)
+    names(bookyMetrics) <- c('BookyAccuracy', 'BookyKappa')
+    
+    defaultMetrics <- defaultSummary(dplyr:::select(metricData, obs, pred), lev = c('VisitorsVictory', 'Draw', 'HomeVictory'), model = model)
+    
+    # Calculating custom Metrics
+    valueDiffVec <- vector(mode = 'numeric')
+    placedBets <- data.frame()
+    for(i in 1:nrow(metricData)) {
+        aktData <- metricData[i, ]
+        
+        if(aktData$obs == 'HomeVictory') {
+            valueDiffVec <- c(valueDiffVec, aktData$HomeVictory - aktData$bookyHomeVictory)
+        } else if(aktData$obs == 'VisitorsVictory') {
+            valueDiffVec <- c(valueDiffVec, aktData$VisitorsVictory - aktData$bookyVisitorsVictory)
+        } else {
+            valueDiffVec <- c(valueDiffVec, aktData$Draw - aktData$bookyDraw)
+        }
+        
+        # Bet on HomeVictory
+        if(aktData$HomeVictory / aktData$bookyHomeVictory >= 
+           probRatioToBet) {
+            # Bet won
+            if(aktData$obs == 'HomeVictory') {
+                matchGain <- 1 / aktData$bookyHomeVictory * stake - stake
+            } 
+            # Bet lost
+            else {
+                matchGain <- -stake
+            }
+            placedBets <- rbind(placedBets, 
+                                data.frame(matchId = aktData$matchId,
+                                           matchResult = aktData$obs,
+                                           betOnOutcome = 'HomeVictory',
+                                           predProb = aktData$HomeVictory,
+                                           bookyProb = aktData$bookyHomeVictory,
+                                           stake = stake,
+                                           gain = matchGain))
+        }
+        # Bet on VisitorsVictory
+        if(aktData$VisitorsVictory / aktData$bookyVisitorsVictory >= 
+           probRatioToBet) {
+            # Bet won
+            if(aktData$obs == 'VisitorsVictory') {
+                matchGain <- 1 / aktData$bookyVisitorsVictory * stake - stake
+            } 
+            # Bet lost
+            else {
+                matchGain <- -stake
+            }
+            placedBets <- rbind(placedBets, 
+                                data.frame(matchId = aktData$matchId,
+                                           matchResult = aktData$obs,
+                                           betOnOutcome = 'VisitorsVictory',
+                                           predProb = aktData$VisitorsVictory,
+                                           bookyProb = aktData$bookyVisitorsVictory,
+                                           stake = stake,
+                                           gain = matchGain))
+        }
+        # NO Bets on Draw
+    }
+    valueDiff <- mean(valueDiffVec)
+    stake <- sum(placedBets$stake)
+    gain <- sum(placedBets$gain)
+    
+    gainPerc <- 0.0
+    if(stake > 0) {
+        gainPerc <- as.numeric(gain) / as.numeric(stake) * 100
+    }
+    
+    allMetrics <- c(defaultMetrics, bookyMetrics, 'GainPerc' = gainPerc, 'ValueDiffPerc' = valueDiff * 100)
+    return(allMetrics)
+}
+
 #Multi-Class Summary Function implemented by Zach Mayer
 #Based on caret:::twoClassSummary
 multiClassSummary <- function (data, lev = NULL, model = NULL){
@@ -203,6 +137,8 @@ multiClassSummary <- function (data, lev = NULL, model = NULL){
     require(compiler)
     require(Metrics)
     require(caret)
+    
+    print(nrow(data))
     
     #Check data
     if (!all(levels(data[, "pred"]) == levels(data[, "obs"]))) 
@@ -244,5 +180,4 @@ multiClassSummary <- function (data, lev = NULL, model = NULL){
     #Clean names and return
     names(stats) <- gsub('[[:blank:]]+', '_', names(stats))
     return(stats)
-    
 }

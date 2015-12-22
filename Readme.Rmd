@@ -59,20 +59,18 @@ source('./production/positionFeatureExtraction.R',
 #[11] "Mittelstuermer"        "Linksaussen"           "Rechtsaussen"
 positions <- c('tw', 'def', 'def', 'def', 'mid', 'mid', 'mid', 'mid', 'off', 'off', 'off', 'off', 'off')
 lineupAssignments <- c('DURCHGESPIELT', 'AUSGEWECHSELT', 'EINGEWECHSELT')
-#benchFuncts = c('max', 'avg')
 featuredMatches <- extractMatchResultFeatures(playerStats = stats,
                                             matches = matches,
                                             priceAssignedPositions = positions,
                                             functs = c('min', 'max', 'avg', 'sum'), 
                                             lineupAssignments)
-# Selects the relevant predictors and outcomes
+# Select the relevant predictors
 filteredFeatureMatches <- filterFeaturedMatches(featuredMatches)
 ```
 
-
+Used Features:
 ```{r warning=FALSE, message=FALSE}
 explMatches <- dplyr:::select(filteredFeatureMatches, -matchId, -matchResult, -goalsHome, - goalsVisitors)
-# Features:
 colnames(explMatches)
 ```
 
@@ -103,26 +101,28 @@ avgPlot
 
 No surprise here, offensive players are the most expensive.
 
-## Model fitting
+## Model fitting and tuning
 
-Now I fit several models with several different configurations. The fitting process is devided 
-into two parts. First different models are tuned for optimizing common metrics like accuracy, kappa, ROC.
-Second, the best model configurations are used to resample again to predict the target performance metric 'percentage gain'.
-The first step is necessary by now, because to discard it I have to integrate this custom percentage metric into carets fitting process.
+The target of the model tuning process is to find a model which maximizes the simulated profit [%]. This is a custom metric and implemented in the function betMetricsSummary. This function is integrated in the caret resampling and tuning process (caret is so great!!).
+
+Model algorithms shown here are: POLR, Gradient boosting and extreme gradient boosting (tree). I tryed different models like: random forests, support vector machienes, C5.0, neural nets and knn. These method performances were bad in comparison, so they are not shown here.
+
+**Remarks on custom metrics:**  
+GainPerc is a custom metric, which calculates the simulated profit against Booky odds, if the model would have been applyed consistently. A bet is simulated, if the predicted probability of an outcome divided through the booky probability > 1.1.
+ValueDiffPerc is a custom metric, which calculates the mean difference in percentage points of the predicted probability and the booky probability of the real outcome.
 
 ### Configuration of the fitting process
 
-I use 5-fold cross validation for calculation time performance first, later 10-fold would be probably better.
+I use 5-fold cross validation first. 10-fold would be probably better, but calculation would take much longer. A static seed is set to make the results reproduceable.
 ```{r warning=FALSE, message=FALSE}
 source(file = './production/models.R', 
        echo = FALSE, encoding = 'UTF-8')
 seed <- 16450
-cvContr = trainControl(method = 'cv', number = 5, classProbs = TRUE, 
-                       summaryFunction = multiClassSummary)
+customCvContr <- trainControl(method = 'cv', number = 5, classProbs = TRUE, 
+                              summaryFunction = betMetricsSummary)
 
 resultFormula <- as.formula('matchResult ~ . -matchId -goalsHome -goalsVisitors')
 ```
-
 
 ### POLR model
 
@@ -131,124 +131,51 @@ First I fit a linear POLR model for simplicity and because it regards the outcom
 ```{r warning=FALSE, message=FALSE, cache=TRUE}
 set.seed(seed)
 polrModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'polr',
-                   preProcess = c('center', 'scale'),
-                   trControl = cvContr)
+                   preProcess = c('center', 'scale'), trControl = customCvContr)
+polrModel
+confusionMatrix(polrModel)
 
-# Resampled Training Performance
-dplyr:::select(polrModel$results, Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
+# POLR Resampling exploration
+vioplot(polrModel$resample$GainPerc, names = 'Gain [%]', col = 'green')
+title('Violin Plot of Gain Percentage in resamples')
+summary(polrModel$resample$GainPerc)
+
+# Training Performance without resampling
 testPred <- predict(polrModel, filteredFeatureMatches)
 confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
-# Training Performance without resampling
 confMatrix$overall[1:2]
 ```
+A profit of 21% is huge!! Model Accuracy and kappa are both much better than the booky metrics.
 
 The gap between training and resampled training accuracy and kappa is small, 
 thus I will use more complex models with lower bias.
 
-### Random forest model
+TODO Explore correlations of metrics like 
+GainPerc ~ I(Accuracy - BookyAccuracy) + I(Kappa - BookyKappa)
+GainPerc ~ ValueDiffPerc
 
-RF models give good predictions as well as reducing variance because it decreases tree correlations by introducing additional randomnes.
-I set the number of trees to 1000, because it is a good initial value. Accuracy is used as performance metric.
-
-```{r warning=FALSE, message=FALSE, cache=TRUE}
-rfNtree <- 1000
-rfGrid <- expand.grid(.mtry = seq(2, ncol(filteredFeatureMatches) - 4, by = 3))
-set.seed(seed)
-rfModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'rf',
-                 trControl = cvContr, ntree = rfNtree, importance = TRUE, tuneGrid = rfGrid,
-                 metric = 'Accuracy')
-bestRf <- dplyr:::select(rfModel$results, mtry, Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
-bestRf <- dplyr:::filter(bestRf, mtry == rfModel$bestTune[1, 1])
-# Best model performance
-bestRf
-
-# Training Performance without resampling
-testPred <- predict(rfModel, filteredFeatureMatches)
-confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
-confMatrix$overall[1:2]
-
-# Plotting the resampling profile
-trellis.par.set(caretTheme())
-plot(rfModel)
-```
-
-The poor resampled training performance and the perfect prediction on the not resampled training data indicates massive overfitting, thus the model has very high variance and will be discarded.
-
-### Gradiant Boosing
-
-I expect better accuracy from gbm models, because it is more complex in case of tuning.
-
-```{r echo=FALSE, warning=FALSE, message=FALSE, cache=TRUE}
-sourceDir <- function(path, trace = TRUE, ...) {
-    for (nm in list.files(path, pattern = "[.][RrSsQq]$")) {
-        if(trace) cat(nm,":")
-        source(file.path(path, nm), ...)
-        if(trace) cat("\n")
-    }
-}
-sourceDir('../gbm/R/', trace = FALSE,
-          echo = FALSE, encoding = 'UTF-8')
-```
+### Gradient Boosting
 
 ```{r warning=FALSE, message=FALSE, cache=TRUE}
-gbmGrid <- expand.grid(.interaction.depth = c(1, 5, 9),
-                       .n.trees = (1:10)*100, .shrinkage = c(.05, .1), .n.minobsinnode = c(15, 20))
+gbmGrid <- expand.grid(.interaction.depth = c(1, 2, 3, 4),
+                       .n.trees = seq(50, 1000, by = 200), 
+                       .shrinkage = c(.05), 
+                       .n.minobsinnode = c(10))
 set.seed(seed)
 gbmModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'gbm',
-                  trControl = cvContr, verbose = FALSE, 
+                  trControl = customCvContr, verbose = FALSE, 
                   tuneGrid = gbmGrid, distribution = 'multinomial',
-                  metric = 'Accuracy')
-bestGbm <- dplyr:::select(gbmModel$results, shrinkage, interaction.depth, n.minobsinnode, 
-                          n.trees, Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
-bestGbm <- dplyr:::filter(bestGbm, shrinkage == gbmModel$bestTune[1, 'shrinkage'],
-                          interaction.depth == gbmModel$bestTune[1, 'interaction.depth'],
-                          n.minobsinnode == gbmModel$bestTune[1, 'n.minobsinnode'],
-                          n.trees == gbmModel$bestTune[1, 'n.trees'])
-# Best model performance
-bestGbm
-
-# Training Performance without resampling
-testPred <- predict(gbmModel, filteredFeatureMatches)
-confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
-confMatrix$overall[1:2]
-
+                  metric = 'GainPerc')
+# Best Tune
+gbmModel$results[as.integer(rownames(gbmModel$results)) == as.integer(rownames(gbmModel$bestTune)), ]
 # Plotting the resampling profile
 trellis.par.set(caretTheme())
 plot(gbmModel)
 ```
 
-Fine tuning:
-The graphs show that I should focus on a small number of interaction.depth. The gbm model is slightly more overfitted than POLR.
+There is a slide increase in model performance (GainPerc and ValueDiffPerc). Here is space for some further fine tuning, but I encounter memory problems with gbm, so I try extreme gradient boosting.
 
-```{r warning=FALSE, message=FALSE, cache=TRUE}
-gbmGrid2 <- expand.grid(.interaction.depth = c(1:3),
-                       .n.trees = (2:8)*100, .shrinkage = c(0.025, .05, .075), .n.minobsinnode = c(20, 25))
-set.seed(seed)
-gbmModel2 <- train(form = resultFormula, data = filteredFeatureMatches, method = 'gbm',
-                  trControl = cvContr, verbose = FALSE, 
-                  tuneGrid = gbmGrid2, distribution = 'multinomial',
-                  metric = 'Accuracy')
-bestGbm2 <- dplyr:::select(gbmModel2$results, shrinkage, interaction.depth, n.minobsinnode, 
-                          n.trees, Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
-bestGbm2 <- dplyr:::filter(bestGbm2, shrinkage == gbmModel2$bestTune[1, 'shrinkage'],
-                          interaction.depth == gbmModel2$bestTune[1, 'interaction.depth'],
-                          n.minobsinnode == gbmModel2$bestTune[1, 'n.minobsinnode'],
-                          n.trees == gbmModel2$bestTune[1, 'n.trees'])
-```
-So, we found the best model:
-```{r warning=FALSE, message=FALSE}
-# Best model performance
-bestGbm2
-
-# Plotting the resampling profile
-trellis.par.set(caretTheme())
-plot(gbmModel2)
-
-# Setting best configuration for second step predictions
-bestGbmConfig <- gbmModel2$bestTune
-```
-
-### Extreme Gradient Boosting
+### Extreme Gradiant Boosing
 
 Tuning Parameters: 
 - nrounds (# Boosting Iterations)
@@ -259,135 +186,99 @@ Tuning Parameters:
 - min_child_weight (Minimum Sum of Instance Weight)
 
 ```{r warning=FALSE, message=FALSE, cache=TRUE}
-library(xgboost)
-extrBoostGrid <- expand.grid(nrounds = (1:15)*20,
-                          eta = c(.025, .05, .075, .1, .15),
-                          max_depth = c(1, 2, 3))
+extrBoostGrid <- expand.grid(nrounds = (1:10)*100,
+                             eta = c(.05, .075, .1),
+                             max_depth = 1:4)
 set.seed(seed)
 extrBoostModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'xgbTree',
-                     trControl = cvContr, tuneGrid = extrBoostGrid, metric = 'Accuracy',
-                     objective = 'multi:softprob', num_class = 3, 
-                     colsample_bytree = 1, min_child_weight = 1)
-
-bestExtrBoost <- dplyr:::select(extrBoostModel$results, nrounds, max_depth, eta, 
-                                Accuracy, Kappa, Sensitivity, Specificity, ROC, logLoss)
-bestExtrBoost <- dplyr:::filter(bestExtrBoost, nrounds == extrBoostModel$bestTune[1, 'nrounds'],
-                                max_depth == extrBoostModel$bestTune[1, 'max_depth'],
-                                eta == extrBoostModel$bestTune[1, 'eta'])
-bestExtrBoost 
-
-# Training Performance without resampling
-testPred <- predict(extrBoostModel, filteredFeatureMatches)
-confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
-confMatrix$overall[1:2]
-
-# Plotting the resampling profile
+                        trControl = customCvContr, tuneGrid = extrBoostGrid, metric = 'GainPerc',
+                        objective = 'multi:softprob', num_class = 3,
+                        colsample_bytree = 1, min_child_weight = 1)
 trellis.par.set(caretTheme())
 plot(extrBoostModel)
 
-bestExtrBoostConfig <- extrBoostModel$bestTune
+extrBoostModel$results[as.integer(rownames(extrBoostModel$results)) == as.integer(rownames(extrBoostModel$bestTune)), ]
+
+# Non-resampled training performance
+testPred <- predict(extrBoostModel, filteredFeatureMatches)
+confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
+confMatrix$overall[1:2]
 ```
 
 
+## Predictions with just the starting lineup
 
-## Second Level Prediction
+I don't trust the huge expected profit of ca. 25%. So, I reevaluate my predictions without an information advantage. This means I integrate just the players in the starting lineup (They are known before a match). Additionally I extract features for the players on bench.
 
-Target is to maximize percent profit in comparison to booky odds.
-First have a look at the booky performance:
+```{r warning=FALSE, message=FALSE, cache=TRUE}
+# Integrate starting lineup and additional features for players on bench
+realLineupAssignments <- c('DURCHGESPIELT', 'AUSGEWECHSELT')
+benchFuncts <- c('max', 'avg')
+realFeaturedMatches <- extractMatchResultFeatures(playerStats = stats,
+                                              matches = matches,
+                                              priceAssignedPositions = positions,
+                                              functs = c('min', 'max', 'avg', 'sum'), 
+                                              realLineupAssignments,
+                                              benchFuncts = benchFuncts)
 
+realFilteredFeatureMatches <- filterFeaturedMatches(realFeaturedMatches)
+```
+Used Features:
 ```{r warning=FALSE, message=FALSE}
-source(file = './evaluatePrediction.R', 
-       echo = FALSE, encoding = 'UTF-8')
-bookySummary <- getBookyPerformance(odds = odds, matches = matches)
-bookySummary
+explMatches <- dplyr:::select(realFilteredFeatureMatches, -matchId, -matchResult, -goalsHome, - goalsVisitors)
+colnames(explMatches)
 ```
 
-Now I do resampling again to predict the percentage profit.
+### Tuning Models for a realistic and applicable approach
+
+I tune POLR, GBM and extreme gradient boosting models.
 
 ```{r warning=FALSE, message=FALSE, cache=TRUE}
-folds <- 10
-noneContr <- trainControl(method = 'none', classProbs = TRUE)
-
-# Split Data
-splits <- splitMatches(matchesToSplit = filteredFeatureMatches, splitBy = filteredFeatureMatches$matchResult,
-                       testingMatches = filteredFeatureMatches, folds = folds, seed = seed)
-
-# Resampling
-allPredictions <- data.frame()
-for(i in 1:folds) {
-    actTrain <- splits[[i]]$train
-    actTest <- splits[[i]]$test
-    
-    set.seed(seed)
-    actPolrFit <- caret:::train(form = resultFormula, data = actTrain, 
-                        method = 'polr', preProcess = c('center', 'scale'),
-                        trControl = cvContr)
-    set.seed(seed)
-    actGbmFit <- caret:::train(form = resultFormula, data = actTrain, 
-                                method = 'gbm', trControl = noneContr,
-                                verbose = FALSE, distribution = 'multinomial',
-                                tuneGrid = bestGbmConfig)
-    
-    actExtrBoostFit <- caret:::train(form = resultFormula, data = actTrain, method = 'xgbTree',
-                            trControl = noneContr, tuneGrid = bestExtrBoostConfig,
-                            objective = 'multi:softprob', num_class = 3, 
-                            colsample_bytree = 1, min_child_weight = 1)
-    
-    models <- list('POLR' = actPolrFit, 'GBM' = actGbmFit, 'EXTRBOOST' = actExtrBoostFit)
-    
-    preds <- predict(models, actTest, type = 'prob')
-    preds <- do.call(cbind.data.frame, preds)
-    preds <- cbind('matchId' = actTest$matchId,
-                   'matchResult' = actTest$matchResult, 
-                   preds)
-    
-    if(nrow(allPredictions) == 0) {
-        allPredictions <- preds
-    } else {
-        allPredictions <- rbind(allPredictions, preds)
-    }
-}
+set.seed(seed)
+polrModel <- train(form = resultFormula, data = realFilteredFeatureMatches, method = 'polr',
+                   preProcess = c('center', 'scale'), trControl = customCvContr)
+polrModel
 ```
+Wow, what a huge difference. The expected small information advantage, is big in regard of the expected profit. Lets see if other models perform better.
 
-## Evaluate Predictions for percentage profit
+### GBM 
 
 ```{r warning=FALSE, message=FALSE, cache=TRUE}
-source(file = './evaluatePrediction.R', 
-       echo = FALSE, encoding = 'UTF-8')
-allPredictions <- arrange(allPredictions, matchId)
-polrPreds <- dplyr:::select(allPredictions, matchId, matchResult, 
-                            'HomeVictory' = POLR.HomeVictory, 
-                            'VisitorsVictory' = POLR.VisitorsVictory,
-                            'Draw' = POLR.Draw)
-polrEvals <- evaluatePrediction(prediction = polrPreds, 
-                                comparison = odds, 
-                                probRatioToBet = 1.1, stake = 1)
-printEvaluation(polrEvals)
-
-gbmPreds <- dplyr:::select(allPredictions, matchId, matchResult, 
-                           'HomeVictory' = GBM.HomeVictory, 
-                           'VisitorsVictory' = GBM.VisitorsVictory,
-                           'Draw' = GBM.Draw)
-gbmEvals <- evaluatePrediction(prediction = gbmPreds, 
-                               comparison = odds, 
-                               probRatioToBet = 1.1, stake = 1)
-printEvaluation(gbmEvals)
-
-extrBoostPreds <- dplyr:::select(allPredictions, matchId, matchResult, 
-                          'HomeVictory' = EXTRBOOST.HomeVictory, 
-                          'VisitorsVictory' = EXTRBOOST.VisitorsVictory,
-                          'Draw' = EXTRBOOST.Draw)
-extrBoostEvals <- evaluatePrediction(prediction = extrBoostPreds, 
-                              comparison = odds, 
-                              probRatioToBet = 1.1, stake = 1)
-printEvaluation(extrBoostEvals)
+gbmGrid <- expand.grid(.interaction.depth = c(1, 2, 3, 4),
+                       .n.trees = seq(50, 1000, by = 200), 
+                       .shrinkage = c(.05), 
+                       .n.minobsinnode = c(10))
+set.seed(seed)
+gbmModel <- train(form = resultFormula, data = realFilteredFeatureMatches, method = 'gbm',
+                  trControl = customCvContr, verbose = FALSE, 
+                  tuneGrid = gbmGrid, distribution = 'multinomial',
+                  metric = 'GainPerc')
+# Best Tune
+gbmModel$results[as.integer(rownames(gbmModel$results)) == as.integer(rownames(gbmModel$bestTune)), ]
+# Plotting the resampling profile
+trellis.par.set(caretTheme())
+plot(gbmModel)
 ```
 
+### Extreme Boosting
+```{r warning=FALSE, message=FALSE, cache=TRUE}
+extrBoostGrid <- expand.grid(nrounds = (1:10)*100,
+                             eta = c(.05, .075, .1),
+                             max_depth = 1:4)
+set.seed(seed)
+extrBoostModel <- train(form = resultFormula, data = realFilteredFeatureMatches, method = 'xgbTree',
+                        trControl = customCvContr, tuneGrid = extrBoostGrid, metric = 'GainPerc',
+                        objective = 'multi:softprob', num_class = 3,
+                        colsample_bytree = 1, min_child_weight = 1)
+extrBoostModel$results[as.integer(rownames(extrBoostModel$results)) == as.integer(rownames(extrBoostModel$bestTune)), ]
+trellis.par.set(caretTheme())
+plot(extrBoostModel)
+vioplot(extrBoostModel$resample$GainPerc, names = 'Gain [%]', col = 'green')
+title('Violin Plot of Gain Percentage in resamples')
+summary(extrBoostModel$resample$GainPerc)
+```
 
+# Results and Forecast
 
-## Prediction with just the starting lineup
-
-This time only the players in the starting lineup are considered.
-
-# TODO
-
+The results are not overwhelming. The final model is very unstable concerning the profit (high SD). The minimum requirement for applying the model on real bets is a positive GainPerc over all folds and at least > 5%.
+To achieve this, I think it is necessary to integrate new features. Imaginable features could describe team formations or distance of the visiting team to travel. A disadvantage of featured based on marketprices of players is, that the marketprices are created twice a year, so they describe the long term quality of a player. A way to integrate short term form predictors of players is to engineer features based on the kicker.de grade associated to players in past matches.

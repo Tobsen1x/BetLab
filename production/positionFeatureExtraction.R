@@ -67,7 +67,7 @@ extractMatchResultFeatures <- function(playerStats, matches,
                            group = 'Price', home = TRUE, functs = functs)
     featureNames <- c(featureNames, sapply(unique(priceAssignedPositions), getFeatureName, 
                                            group = 'Price', home = FALSE, functs = functs))
-    if(!is.na(benchFuncts)) {
+    if(!is.na(benchFuncts[1])) {
         # For bench features just take positions def, mid, off
         benchPositions <- unique(priceAssignedPositions)
         benchPositions <- benchPositions[!benchPositions %in% 'tw']
@@ -214,7 +214,9 @@ filterFeaturedMatches <- function(featuredMatches) {
     relevantFeatureMatches <- dplyr:::select(relevantFeatureMatches, -tw_Price_Home_min, -tw_Price_Home_max,
                                              -tw_Price_Home_sum, -tw_Price_Visitors_min, -tw_Price_Visitors_max,
                                              -tw_Price_Visitors_sum)
+    relevantFeatureMatches <- dplyr:::arrange(relevantFeatureMatches, matchId)
     
+    ### Formations are disabled for now
     # Create dummy vars for Formations
     #dummies <- dummyVars(~ heimGroupedFormation + auswGroupedFormation, data = relevantFeatureMatches)
     #predDummies <- predict(dummies, relevantFeatureMatches)

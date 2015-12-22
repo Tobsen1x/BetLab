@@ -175,17 +175,20 @@ bestExtrBoostConfig <- extrBoostModel$bestTune
 
 ### Integrate custom metric 'percentage profit' into caret train
 
+cvContr = trainControl(method = 'cv', number = 5, classProbs = TRUE, 
+                       summaryFunction = multiClassSummary)
+set.seed(7382)
+polrModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'polr',
+                   preProcess = c('center', 'scale'),
+                   trControl = cvContr)
+polrModel
+
 customGrid <- trainControl(method = 'cv', number = 5, classProbs = TRUE,
                            summaryFunction = betMetricsSummary)
 set.seed(seed)
 testModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'polr',
                         trControl = customGrid)
-# Explore
-data
-
-View(filteredFeatureMatches[728:730,])
-
-
+confusionMatrix(testModel)
 
 #### Exploring Performance Distributions within Resamples ####
 
