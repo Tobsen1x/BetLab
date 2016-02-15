@@ -138,8 +138,6 @@ multiClassSummary <- function (data, lev = NULL, model = NULL){
     require(Metrics)
     require(caret)
     
-    print(nrow(data))
-    
     #Check data
     if (!all(levels(data[, "pred"]) == levels(data[, "obs"]))) 
         stop("levels of observed and predicted data do not match")

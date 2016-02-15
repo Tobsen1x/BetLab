@@ -1,48 +1,3 @@
-# Adds ratios and differences of specific, static features
-addDerivedFeatures <- function(featuredMatches, infiniteReplacement = log(10)) {
-    results <- mutate(featuredMatches, 
-                      tw_Price_avg_Diff = tw_Price_Home_avg - tw_Price_Visitors_avg,
-                      tw_Price_avg_Ratio = ifelse(is.infinite(tw_Price_Home_avg / tw_Price_Visitors_avg), 
-                                                  infiniteReplacement, log(tw_Price_Home_avg / tw_Price_Visitors_avg)),
-                      def_Price_avg_Diff = def_Price_Home_avg - def_Price_Visitors_avg,
-                      def_Price_avg_Ratio = ifelse(is.infinite(def_Price_Home_avg / def_Price_Visitors_avg), 
-                                                   infiniteReplacement, log(def_Price_Home_avg / def_Price_Visitors_avg)),
-                      def_Price_min_Diff = def_Price_Home_min - def_Price_Visitors_min,
-                      def_Price_min_Ratio = ifelse(is.infinite(def_Price_Home_min / def_Price_Visitors_min), 
-                                                   infiniteReplacement, log(def_Price_Home_min / def_Price_Visitors_min)),
-                      def_Price_max_Diff = def_Price_Home_max - def_Price_Visitors_max,
-                      def_Price_max_Ratio = ifelse(is.infinite(def_Price_Home_max / def_Price_Visitors_max), 
-                                                   infiniteReplacement, log(def_Price_Home_max / def_Price_Visitors_max)),
-                      def_Price_sum_Diff = def_Price_Home_sum - def_Price_Visitors_sum,
-                      def_Price_sum_Ratio = ifelse(is.infinite(def_Price_Home_sum / def_Price_Visitors_sum), 
-                                                   infiniteReplacement, log(def_Price_Home_sum / def_Price_Visitors_sum)),
-                      mid_Price_avg_Diff = mid_Price_Home_avg - mid_Price_Visitors_avg,
-                      mid_Price_avg_Ratio = ifelse(is.infinite(mid_Price_Home_avg / mid_Price_Visitors_avg), 
-                                                   infiniteReplacement, log(mid_Price_Home_avg / mid_Price_Visitors_avg)),
-                      mid_Price_min_Diff = mid_Price_Home_min - mid_Price_Visitors_min,
-                      mid_Price_min_Ratio = ifelse(is.infinite(mid_Price_Home_min / mid_Price_Visitors_min), 
-                                                   infiniteReplacement, log(mid_Price_Home_min / mid_Price_Visitors_min)),
-                      mid_Price_max_Diff = mid_Price_Home_max - mid_Price_Visitors_max,
-                      mid_Price_max_Ratio = ifelse(is.infinite(mid_Price_Home_max / mid_Price_Visitors_max), 
-                                                   infiniteReplacement, log(mid_Price_Home_max / mid_Price_Visitors_max)),
-                      mid_Price_sum_Diff = mid_Price_Home_sum - mid_Price_Visitors_sum,
-                      mid_Price_sum_Ratio = ifelse(is.infinite(mid_Price_Home_sum / mid_Price_Visitors_sum), 
-                                                   infiniteReplacement, log(mid_Price_Home_sum / mid_Price_Visitors_sum)),
-                      off_Price_avg_Diff = off_Price_Home_avg - off_Price_Visitors_avg,
-                      off_Price_avg_Ratio = ifelse(is.infinite(off_Price_Home_avg / off_Price_Visitors_avg), 
-                                                   infiniteReplacement, log(off_Price_Home_avg / off_Price_Visitors_avg)),
-                      off_Price_min_Diff = off_Price_Home_min - off_Price_Visitors_min,
-                      off_Price_min_Ratio = ifelse(is.infinite(off_Price_Home_min / off_Price_Visitors_min), 
-                                                   infiniteReplacement, log(off_Price_Home_min / off_Price_Visitors_min)),
-                      off_Price_max_Diff = off_Price_Home_max - off_Price_Visitors_max,
-                      off_Price_max_Ratio = ifelse(is.infinite(off_Price_Home_max / off_Price_Visitors_max), 
-                                                   infiniteReplacement, log(off_Price_Home_max / off_Price_Visitors_max)),
-                      off_Price_sum_Diff = off_Price_Home_sum - off_Price_Visitors_sum,
-                      off_Price_sum_Ratio = ifelse(is.infinite(off_Price_Home_sum / off_Price_Visitors_sum), 
-                                                   infiniteReplacement, log(off_Price_Home_sum / off_Price_Visitors_sum)))
-    
-    return(results)
-}
 
 # TEST
 #playerStats <- stats
@@ -60,7 +15,7 @@ extractMatchResultFeatures <- function(playerStats, matches,
     colNames <- levels(playerStats$position)
     groupedPositions <- as.data.frame(t(priceAssignedPositions))
     colnames(groupedPositions) <- colNames
-    playerStats$groupedStaticPosition <- sapply(playerStats$staticPosition, FUN = function(x) groupedPositions[1, x])
+    playerStats$groupedPosition <- sapply(playerStats$position, FUN = function(x) groupedPositions[1, x])
     
     # Name position - price
     featureNames <- sapply(unique(priceAssignedPositions), getFeatureName, 
@@ -212,8 +167,8 @@ filterFeaturedMatches <- function(featuredMatches) {
     ind <- apply(relevantFeatureMatches, 1, function(x) !any(is.na(x)))
     relevantFeatureMatches <- relevantFeatureMatches[ind, ]
     relevantFeatureMatches <- dplyr:::select(relevantFeatureMatches, -tw_Price_Home_min, -tw_Price_Home_max,
-                                             -tw_Price_Home_sum, -tw_Price_Visitors_min, -tw_Price_Visitors_max,
-                                             -tw_Price_Visitors_sum)
+                                              -tw_Price_Visitors_min, -tw_Price_Visitors_max)#,
+                                             #-tw_Price_Visitors_sum, -tw_Price_Home_sum)
     relevantFeatureMatches <- dplyr:::arrange(relevantFeatureMatches, matchId)
     
     ### Formations are disabled for now

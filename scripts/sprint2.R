@@ -27,7 +27,7 @@ lineupAssignments <- c('DURCHGESPIELT', 'AUSGEWECHSELT', 'EINGEWECHSELT')
 featuredMatches <- extractMatchResultFeatures(playerStats = stats,
                                             matches = matches,
                                             priceAssignedPositions = positions,
-                                            functs = c('min', 'max', 'avg', 'sum'), 
+                                            functs = c('min', 'max', 'avg'), #, 'sum'), 
                                             lineupAssignments)
 
 filteredFeatureMatches <- filterFeaturedMatches(featuredMatches)
@@ -36,10 +36,53 @@ explMatches <- dplyr:::select(filteredFeatureMatches, -matchId, -matchResult, -g
 # Features:
 colnames(explMatches)
 
-# Model Fitting
-
+### Explore performance without sums
 source(file = './production/models.R', 
        echo = FALSE, encoding = 'UTF-8')
+seed <- 16450
+customCvContr <- trainControl(method = 'cv', number = 5, classProbs = TRUE, 
+                              summaryFunction = betMetricsSummary)
+
+resultFormula <- as.formula('matchResult ~ . -matchId -goalsHome -goalsVisitors')
+
+set.seed(seed)
+polrModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'polr',
+                   preProcess = c('center', 'scale'), trControl = customCvContr)
+polrModel
+confusionMatrix(polrModel)
+
+# POLR Resampling exploration
+vioplot(polrModel$resample$GainPerc, names = 'Gain [%]', col = 'green')
+title('Violin Plot of Gain Percentage in resamples')
+summary(polrModel$resample$GainPerc)
+
+# Training Performance without resampling
+testPred <- predict(polrModel, filteredFeatureMatches)
+confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
+confMatrix$overall[1:2]
+
+### Extreme Gradient Boosting
+extrBoostGrid <- expand.grid(nrounds = (1:10)*100,
+                             eta = c(.05, .075, .1),
+                             max_depth = 1:4)
+set.seed(seed)
+extrBoostModel <- train(form = resultFormula, data = filteredFeatureMatches, method = 'xgbTree',
+                        trControl = customCvContr, tuneGrid = extrBoostGrid, metric = 'GainPerc',
+                        objective = 'multi:softprob', num_class = 3,
+                        colsample_bytree = 1, min_child_weight = 1)
+trellis.par.set(caretTheme())
+plot(extrBoostModel)
+
+extrBoostModel$results[as.integer(rownames(extrBoostModel$results)) == as.integer(rownames(extrBoostModel$bestTune)), ]
+
+# Non-resampled training performance
+testPred <- predict(extrBoostModel, filteredFeatureMatches)
+confMatrix <- confusionMatrix(testPred, reference = filteredFeatureMatches$matchResult)
+confMatrix$overall[1:2]
+
+
+# Model Fitting
+
 seed <- 16450
 cvContr = trainControl(method = 'cv', number = 5, classProbs = TRUE, 
                        summaryFunction = multiClassSummary)

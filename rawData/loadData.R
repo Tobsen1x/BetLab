@@ -86,8 +86,9 @@ loadTrainingData <- function(toMatchday, seasons,
         sp.saison as season, sp.spieltag as matchday, sp.spielZeit as matchtime,
         sp.toreHeim as goalsHome, heimAuf.transFormation as formation,
         sp.toreAusw as goalsVisitors, stat.spieler_id as playerId,
-        stat.transPos as position, heimSpieler.position as staticPosition,
-        stat.einsatz as playerAssignment, \'1\' as home
+        stat.transPos as position,
+        stat.einsatz as playerAssignment, \'1\' as home,
+        stat.note as grade
     from spiel sp 
         inner join aufstellung heimAuf on sp.heimAuf_id = heimAuf.id
         inner join aufstellung_spieler heimAufSp on heimAuf.id = heimAufSp.Aufstellung_id
@@ -101,8 +102,8 @@ loadTrainingData <- function(toMatchday, seasons,
         sp.saison as season, sp.spieltag as matchday, sp.spielZeit as matchtime,
         sp.toreHeim as goalsHome, heimAuf.transFormation as formation,
         sp.toreAusw as goalsVisitors, stat.spieler_id as playerId,
-        stat.transPos as position, heimSpieler.position as staticPosition,
-        stat.einsatz as playerAssignment, \'1\' as home
+        stat.transPos as position, 
+        stat.einsatz as playerAssignment, \'1\' as home, stat.note as grade
     from spiel sp 
         inner join aufstellung heimAuf on sp.heimAuf_id = heimAuf.id
         inner join aufstellung_bench heimAufSp on heimAuf.id = heimAufSp.Aufstellung_id
@@ -116,8 +117,8 @@ loadTrainingData <- function(toMatchday, seasons,
         sp.saison as season, sp.spieltag as matchday, sp.spielZeit as matchtime,
         sp.toreHeim as goalsHome, auswAuf.transFormation as formation,
         sp.toreAusw as goalsVisitors, stat.spieler_id as playerId,
-        stat.transPos as position, auswSpieler.position as staticPosition,
-        stat.einsatz as playerAssignment, \'0\' as home
+        stat.transPos as position,
+        stat.einsatz as playerAssignment, \'0\' as home, stat.note as grade
     from spiel sp 
         inner join aufstellung auswAuf on sp.auswAuf_id = auswAuf.id
         inner join aufstellung_spieler auswAufSp on auswAuf.id = auswAufSp.Aufstellung_id
@@ -131,8 +132,8 @@ loadTrainingData <- function(toMatchday, seasons,
         sp.saison as season, sp.spieltag as matchday, sp.spielZeit as matchtime,
         sp.toreHeim as goalsHome, auswAuf.transFormation as formation,
         sp.toreAusw as goalsVisitors, stat.spieler_id as playerId,
-        stat.transPos as position, auswSpieler.position as staticPosition,
-        stat.einsatz as playerAssignment, \'0\' as home
+        stat.transPos as position,
+        stat.einsatz as playerAssignment, \'0\' as home, stat.note as grade
     from spiel sp 
         inner join aufstellung auswAuf on sp.auswAuf_id = auswAuf.id
         inner join aufstellung_bench auswAufSp on auswAuf.id = auswAufSp.Aufstellung_id
@@ -158,23 +159,23 @@ loadTrainingData <- function(toMatchday, seasons,
     playerStats$position[grepl('Rechtsau', playerStats$position)] <- 'Rechtsaussen'
     
     # Transform staticPosition
-    playerStats$staticPosition[playerStats$staticPosition == 'Abwehr - Innenverteidiger'] <- 'Innenverteidiger'
-    playerStats$staticPosition[playerStats$staticPosition == 'Abwehr - Rechter Verteidiger'] <- 'Rechter Verteidiger'
-    playerStats$staticPosition[playerStats$staticPosition == 'Abwehr - Linker Verteidiger'] <- 'Linker Verteidiger'
-    playerStats$staticPosition[playerStats$staticPosition == 'Abwehr'] <- 'InnenVerteidiger'
-    playerStats$staticPosition[playerStats$staticPosition == 'Mittelfeld - Defensives Mittelfeld'] <- 'Defensives Mittelfeld'
-    playerStats$staticPosition[playerStats$staticPosition == 'Mittelfeld - Zentrales Mittelfeld'] <- 'Zentrales Mittelfeld'
-    playerStats$staticPosition[playerStats$staticPosition == 'Mittelfeld - Rechtes Mittelfeld'] <- 'Rechtes Mittelfeld'
-    playerStats$staticPosition[playerStats$staticPosition == 'Mittelfeld - Linkes Mittelfeld'] <- 'Linkes Mittelfeld'
-    playerStats$staticPosition[grepl('Offensives Mittelfeld', playerStats$staticPosition)] <- 'Offensives Mittelfeld'
-    playerStats$staticPosition[playerStats$staticPosition == 'Mittelfeld'] <- 'Zentrales Mittelfeld'
-    playerStats$staticPosition[grepl('Mittelfeld - Linksau', playerStats$staticPosition)] <- 'Linkes Mittelfeld'
-    playerStats$staticPosition[grepl('Mittelfeld - Rechtsau', playerStats$staticPosition)] <- 'Rechtes Mittelfeld'
-    playerStats$staticPosition[grepl('ngende Spitze', playerStats$staticPosition)] <- 'Haengende Spitze'
-    playerStats$staticPosition[grepl('Sturm - Mittelst', playerStats$staticPosition)] <- 'Mittelstuermer'
-    playerStats$staticPosition[grepl('Sturm - Linksau', playerStats$staticPosition)] <- 'Linksaussen'
-    playerStats$staticPosition[grepl('Sturm - Rechtsau', playerStats$staticPosition)] <- 'Rechtsaussen'
-    playerStats$staticPosition[playerStats$staticPosition == 'Sturm'] <- 'Mittelstuermer'
+    #playerStats$staticPosition[playerStats$staticPosition == 'Abwehr - Innenverteidiger'] <- 'Innenverteidiger'
+    #playerStats$staticPosition[playerStats$staticPosition == 'Abwehr - Rechter Verteidiger'] <- 'Rechter Verteidiger'
+    #playerStats$staticPosition[playerStats$staticPosition == 'Abwehr - Linker Verteidiger'] <- 'Linker Verteidiger'
+    #playerStats$staticPosition[playerStats$staticPosition == 'Abwehr'] <- 'InnenVerteidiger'
+    #playerStats$staticPosition[playerStats$staticPosition == 'Mittelfeld - Defensives Mittelfeld'] <- 'Defensives Mittelfeld'
+    #playerStats$staticPosition[playerStats$staticPosition == 'Mittelfeld - Zentrales Mittelfeld'] <- 'Zentrales Mittelfeld'
+    #playerStats$staticPosition[playerStats$staticPosition == 'Mittelfeld - Rechtes Mittelfeld'] <- 'Rechtes Mittelfeld'
+    #playerStats$staticPosition[playerStats$staticPosition == 'Mittelfeld - Linkes Mittelfeld'] <- 'Linkes Mittelfeld'
+    #playerStats$staticPosition[grepl('Offensives Mittelfeld', playerStats$staticPosition)] <- 'Offensives Mittelfeld'
+    #playerStats$staticPosition[playerStats$staticPosition == 'Mittelfeld'] <- 'Zentrales Mittelfeld'
+    #playerStats$staticPosition[grepl('Mittelfeld - Linksau', playerStats$staticPosition)] <- 'Linkes Mittelfeld'
+    #playerStats$staticPosition[grepl('Mittelfeld - Rechtsau', playerStats$staticPosition)] <- 'Rechtes Mittelfeld'
+    #playerStats$staticPosition[grepl('ngende Spitze', playerStats$staticPosition)] <- 'Haengende Spitze'
+    #playerStats$staticPosition[grepl('Sturm - Mittelst', playerStats$staticPosition)] <- 'Mittelstuermer'
+    #playerStats$staticPosition[grepl('Sturm - Linksau', playerStats$staticPosition)] <- 'Linksaussen'
+    #playerStats$staticPosition[grepl('Sturm - Rechtsau', playerStats$staticPosition)] <- 'Rechtsaussen'
+    #playerStats$staticPosition[playerStats$staticPosition == 'Sturm'] <- 'Mittelstuermer'
     
     positionLevels <- c("Torwart", "Innenverteidiger",
                         "Linker Verteidiger", "Rechter Verteidiger",
@@ -189,10 +190,10 @@ loadTrainingData <- function(toMatchday, seasons,
                              playerAssignment = as.factor(playerAssignment),
                              formation = as.factor(formation),
                              home = as.logical(as.numeric(home)),
-                             position = factor(position, positionLevels),
-                             staticPosition = factor(staticPosition, positionLevels))
+                             position = factor(position, positionLevels))#,
+                             #staticPosition = factor(staticPosition, positionLevels))
     
-    playerStats$staticPosition[is.na(playerStats$staticPosition)] <- 'Zentrales Mittelfeld'
+   #playerStats$staticPosition[is.na(playerStats$staticPosition)] <- 'Zentrales Mittelfeld'
     
     ### Reading player prices
     priceQuery <- 'select sp.id as playerId, preis.informationDate, 
