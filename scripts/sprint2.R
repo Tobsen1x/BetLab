@@ -1,4 +1,4 @@
-source('./production/loadData.R', 
+source('./rawData/loadData.R', 
        echo = FALSE, encoding = 'UTF-8')
 toMatchday <- 34
 seasons <- c('2005-2006', '2006-2007', '2007-2008', '2008-2009', '2009-2010',
@@ -11,7 +11,7 @@ stats <- trainingRaw$stats
 
 describe(select(matches, goalsHome, goalsVisitors, matchResult))
 describe(select(odds, HomeVictory, VisitorsVictory, Draw))
-describe(select(stats, fitPrice, position, playerAssignment, formation))
+describe(select(stats, fitPrice, grade, position, playerAssignment, formation))
 
 ### Feature Engineering ###
 

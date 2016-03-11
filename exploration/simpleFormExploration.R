@@ -17,7 +17,7 @@ relMatches <- filter(matches, season == relSeason)
 firstMatch <- filter(matches, season == relSeason, matchday == relMatchday)[1, ]
 relStats <- filter(stats, season == relSeason)
 firstStats <- filter(stats, matchId == firstMatch$matchId)
-
+#describe(select(firstStats, playerAssignment))
 firstStat <- firstStats[1, ]
 
 ##### get simple Form for playerStat #####
@@ -26,16 +26,26 @@ firstStat <- firstStats[1, ]
 pastStats <- filter(relStats, matchday < firstStat$matchday, playerId == firstStat$playerId)
 relDays <- unique(pastStats$matchday)
 relDays <- relDays[order(relDays, decreasing = TRUE)]
+
+# Get past weeks count
+# TODO
+getPastWeeks <- function(relWeek, pastWeek) {
+    return(relWeek - pastWeek)
+}
+
+relFormStats <- data.frame()
 #TEST
 day <- relDays[1]
+# Extract data for form calculation
 for(day in relDays) {
     aktStat <- filter(pastStats, matchday == day)
     aktFormStat <- data.frame('matchday' = aktStat$matchday, 
-                              'pastWeeks' = getPastWeaks(
-                                  firstMatch$matchtime, aktStat$matchtime),
+                              #'pastWeeks' = getPastWeeks(
+                              #    firstMatch$matchtime, aktStat$matchtime),
                               'playerAssignment' = aktStat$playerAssignment,
                               'home' = aktStat$home,
                               'grade' = aktStat$grade)
+    relFormStats <- rbind(relFormStats, aktFormStat)
 }
 
-# Get weeks 
+# Calculate Form
