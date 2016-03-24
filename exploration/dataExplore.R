@@ -1,20 +1,26 @@
-source(file = 'production/loadData.R', echo = FALSE, encoding = 'UTF-8')
-
+### Execute load data from DB ###
+source(file = 'dataProvider/loadData.R', echo = FALSE, encoding = 'UTF-8')
 toMatchday <- 34
 seasons <- c('2005-2006', '2006-2007', '2007-2008', '2008-2009', '2009-2010', 
              '2010-2011', '2011-2012', '2012-2013', '2013-2014', '2014-2015')
 leagues <- c('BL1')
-
 data <- loadTrainingData(toMatchday, seasons, leagues)
+# Save it Digga
+saveRDS(data, file="data/BL1_2005-2015.Rds")
+###
+
+data <- readRDS(file="data/BL1_2005-2015.Rds")
+
 stats <- data$stats
 matches <- data$matches
 
 # Exploring match - player - stats
-describe(dplyr:::select(data$stats, season, position, playerAssignment, fitPrice))
+describe(select(data$stats, season, position, playerAssignment, fitPrice))
+
+# TODO Move to test
 # All positions have to be set
 nrow(filter(data$stats, is.na(position)))
 
-library(tidyr)
 matchStats <- summarise(group_by(stats, matchId, home, playerAssignment), sum = n())
 tidyMatchStats <- spread(matchStats, playerAssignment, sum)
 tidyMatchStats[is.na(tidyMatchStats)] <- 0
@@ -25,10 +31,9 @@ tidyMatchStats <- mutate(tidyMatchStats, valid = AUSGEWECHSELT == EINGEWECHSELT)
 head(filter(tidyMatchStats, !valid))
 
 ## Prices
-### 
+### Stats without prices
 naStats <- filter(data$stats, is.na(fitPriceDate), playerAssignment %in% c('DURCHGESPIELT', 'EINGEWECHSELT', 'AUSGEWECHSELT'))
 naStatsSeasonAgr <- summarise(group_by(naStats, season), sum = n())
-mean(naStats$fitPrice)
 
 head(naStats)
 unique(naStats$playerId)
@@ -49,7 +54,6 @@ describe(exploreOdds$bookyProbSum)
 
 ### Exploring kickerGrade
 describe(stats$grade)
-library(vioplot)
 naRmGrade <- stats$grade[!is.na(stats$grade)]
 vioplot(naRmGrade, names = 'Grade', col = 'yellow')
 title('Violin Plot of Grades')

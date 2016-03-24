@@ -1,53 +1,51 @@
-# Split the matches into different folds. Each fold serving as testset.
-# Remaining data is split into two different training sets.
-splitMatches <- function(matchesToSplit, splitBy, trainingSetRest = NA, 
-                         testingMatches, folds, seed) {
-    require(caret)
-    require(dplyr)
-    
-    if(is.na(trainingSetRest)) {
-        trainingSetRest <- data.frame()
-    }
-    
-    # Split data
-    set.seed(seed)
-    testFold <- createFolds(splitBy, k = folds,
-                            list = FALSE)
-    matchesToSplit <- cbind(matchesToSplit, testFold)
-    
-    allSets <- list()
-    for(i in 1:folds) {
-        train <- filter(matchesToSplit, testFold != i)
-        train <- dplyr:::select(train, -c(testFold))
-        trainingMatchIds <- unique(train$matchId)
-        
-        # Konsolidating trainset and testset
-        restMatches <- filter(trainingSetRest, matchId %in% trainingMatchIds)
-        train <- rbind(train, restMatches)
-        
-        #for(j in 1:nrow(train)) {
-        #    aktMatch <- train[j, ]
-        #    restMatch <- filter(trainingSetRest, matchId == aktMatch$matchId)
-        #    train <- rbind(train, restMatch)
-        #}
-        
-        test <- filter(testingMatches, !(matchId %in% trainingMatchIds))
-        
-        splitData <- list('train' = train, 'test' = test)
-        allSets <- append(allSets, list(splitData))
-    }
-    
-    return(allSets)
+selectModelInput <- function(featuredMatches) {
+  modelInput <- select(featuredMatches, matchId, matchResult, goalsHome, goalsVisitors, goalDiff, 
+                       grep('Price', colnames(featuredMatches)),
+                       grep('Form', colnames(featuredMatches)),
+                       -heimFormation, -auswFormation)
+  return(modelInput)
+}
+
+addPred <- function(probData) {
+  enrichedData <- mutate(probData, pred = ifelse(HomeVictory >= VisitorsVictory & HomeVictory >= Draw, 'HomeVictory',
+                                       ifelse(VisitorsVictory > HomeVictory & VisitorsVictory > Draw, 'VisitorsVictory', 'Draw')))
+  enrichedData <- mutate(enrichedData, pred = 
+    factor(pred, levels = c('VisitorsVictory', 'Draw', 'HomeVictory'), 
+           labels = c('VisitorsVictory', 'Draw', 'HomeVictory'), 
+           ordered = TRUE))
+  return(enrichedData)
+}
+
+fillByAllHomeBenchmark <- function(inputData) {
+  enrichedData <- mutate(inputData,
+               HomeVictory = 1.0, VisitorsVictory = 0.0, Draw = 0.0)
+  enrichedData <- addPred(enrichedData)
+  
+  enrichedData <- select(enrichedData, pred, obs, VisitorsVictory, Draw, HomeVictory, rowIndex)
+  return(enrichedData)
+}
+
+fillByAllRandom <- function(inputData) {
+  enrichedData <- mutate(inputData,
+                         HomeVictory = runif(nrow(inputData), 0, 1), 
+                         VisitorsVictory = runif(nrow(inputData), 0, (1.0 - HomeVictory)), 
+                         Draw = runif(nrow(inputData), 0, (1.0 - HomeVictory - VisitorsVictory)))
+  enrichedData <- addPred(enrichedData)
+  
+  enrichedData <- select(enrichedData, pred, obs, VisitorsVictory, Draw, HomeVictory, rowIndex)
+  return(enrichedData)
 }
 
 # Custom metric summary function
+# input data of train() function has to be a dataframe 'modelInput'.
+# Variable 'odds' has to be present in the environment, too.
 betMetricsSummary <- function(data, lev, model, probRatioToBet = 1.1, stake = 1) {
-    metricData<- cbind('matchId' = filteredFeatureMatches[as.integer(rownames(data)), 'matchId'], data)
-    redOdds <- dplyr:::select(odds, matchId, 'bookyVisitorsVictory' = VisitorsVictory, 
+    metricData<- cbind('matchId' = modelInput[as.integer(rownames(data)), 'matchId'], data)
+    redOdds <- select(odds, matchId, 'bookyVisitorsVictory' = VisitorsVictory, 
                               'bookyDraw' = Draw, 
                               'bookyHomeVictory' = HomeVictory)
     metricData <- merge(metricData,redOdds, sort = FALSE)
-    metricData <- dplyr:::mutate(metricData, bookyPred = factor(ifelse(bookyHomeVictory > bookyVisitorsVictory & bookyHomeVictory > bookyDraw,
+    metricData <- mutate(metricData, bookyPred = factor(ifelse(bookyHomeVictory > bookyVisitorsVictory & bookyHomeVictory > bookyDraw,
                                                           'HomeVictory', 
                                                           ifelse(bookyVisitorsVictory > bookyHomeVictory & bookyVisitorsVictory > bookyDraw,
                                                                  'VisitorsVictory', 'Draw')),
@@ -55,10 +53,10 @@ betMetricsSummary <- function(data, lev, model, probRatioToBet = 1.1, stake = 1)
                                                           labels = c('VisitorsVictory', 'Draw', 'HomeVictory'), 
                                                           ordered = TRUE))
     
-    bookyMetrics <- defaultSummary(dplyr:::select(metricData, obs, 'pred' = bookyPred), lev = c('VisitorsVictory', 'Draw', 'HomeVictory'), model = model)
+    bookyMetrics <- defaultSummary(select(metricData, obs, 'pred' = bookyPred), lev = c('VisitorsVictory', 'Draw', 'HomeVictory'), model = model)
     names(bookyMetrics) <- c('BookyAccuracy', 'BookyKappa')
     
-    defaultMetrics <- defaultSummary(dplyr:::select(metricData, obs, pred), lev = c('VisitorsVictory', 'Draw', 'HomeVictory'), model = model)
+    defaultMetrics <- defaultSummary(select(metricData, obs, pred), lev = c('VisitorsVictory', 'Draw', 'HomeVictory'), model = model)
     
     # Calculating custom Metrics
     valueDiffVec <- vector(mode = 'numeric')

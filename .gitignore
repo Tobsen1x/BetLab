@@ -3,5 +3,6 @@
 .RData
 *.RData
 *.Rproj
-/Readme_cache
-/Readme_files
+TODOs.txt
+*/*_cache
+*/*_files
