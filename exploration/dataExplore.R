@@ -4,7 +4,7 @@ toMatchday <- 34
 seasons <- c('2005-2006', '2006-2007', '2007-2008', '2008-2009', '2009-2010', 
              '2010-2011', '2011-2012', '2012-2013', '2013-2014', '2014-2015')
 leagues <- c('BL1')
-data <- loadTrainingData(toMatchday, seasons, leagues)
+data <- loadTrainingData(toMatchday, seasons, leagues, dbName = 'soccerlabdata2.0')
 # Save it Digga
 saveRDS(data, file="data/BL1_2005-2015.Rds")
 ###
@@ -13,6 +13,7 @@ data <- readRDS(file="data/BL1_2005-2015.Rds")
 
 stats <- data$stats
 matches <- data$matches
+odds <- data$odds
 
 # Exploring match - player - stats
 describe(select(data$stats, season, position, playerAssignment, fitPrice))
@@ -45,8 +46,8 @@ select(sample_n(stats, 10), matchId, season, matchday, goalsHome, goalsVisitors,
 sample_n(filter(stats, is.na(fitPriceDate)), 10)
 
 ## Odds
-describe(data$odds)
-exploreOdds <- mutate(data$odds, bookyProbSum = 1 - (HomeVictory + 
+describe(odds)
+exploreOdds <- mutate(odds, bookyProbSum = 1 - (HomeVictory + 
                                                          VisitorsVictory + Draw))
 describe(exploreOdds$bookyProbSum)
 # TODO bookyProbSum aggregated over season

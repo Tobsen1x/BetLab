@@ -23,5 +23,3 @@ Using data from german Bundesliga 1, containing matches for seasons 2005-2015, l
 ## Documentation
 
 See my blog [TODO] or the docs in blog-folder.
-
-$$X_i$$

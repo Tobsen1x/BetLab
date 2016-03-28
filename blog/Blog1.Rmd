@@ -5,30 +5,25 @@ date: "18 März 2016"
 output: html_document
 ---
 
-Beating the booky in prediction performance is an ambitious goal. Odds calculating companies (further refered as bookys) put a huge effort in calculating accurate probabilities. I expect them to have large statistic branches with a lot of manual predicting support from sport analysts. Never the less, there are conditions, which could be exploited to gain an advantage: 
+Beating the booky in prediction performance is an ambitious goal. Odds calculating companies (further refered to as bookys) put a huge effort in calculating accurate probabilities. I expect them to have large statistic branches with a lot of manual predicting support from sport analysts. Never the less, there are conditions, which could be exploited to gain an advantage: 
 1. Market behaviour: Bookys adjust their odds depending on market behaviour, which is expected to be irrational  
 2. Feature variety: Using different kinds of features than bookies  
 3. Domain limitation: Concentrating on German 1. Bundesliga  
   
   
-This blog is meant to be a continous story. In this first post I build a model with features, solely engineered from marketprices of participating players. In future work these features will be supplemented by shortterm form values for players, engineered from grades given by the famous german sportsmagazin 'Kicker'.  
-As the modeling algorithm xgboost is used, because it is known to be high perfoming for different problems. Several winning solutions on kaggle used it.
+This blog is meant to be a continous story. In this first post I build a model with features, solely engineered from marketprices of participating players. In future work these features will be supplemented by shortterm form values for players, engineered from grades given by the famous german sportsmagazin 'Kicker'. Additional preprocessing, dimension reduction and further modeling technics will be applied.  
+To make a start, the modeling algorithm xgboost is used, because it is known to be high perfoming for different problems. Several winning solutions on kaggle used it.
 
 ## Goal
 
-This work aims on implementing a model to predict accurate probabilities, which applied in a betting strategy against booky odds would simulate a preferably high percentage profit. This simulated percentage profit is implemented as a custom metric and integrated in the model tuning process. Caret provides a method to easily apply such custom metrics.
+This work aims on implementing a model to predict accurate probabilities, which applied in a betting strategy against booky odds would simulate a preferably high percentage profit. This simulated percentage profit is implemented as a custom metric and integrated in carets model tuning process.
 
-
-
-In my approach I use player features engineered for participating players in matches and aggregate them to match features for a categorial model with the outcome HOMEVICTORY, DRAW and VISITORSVICTORY. As player features, the players current marketprices and generated form values are used. Additional match features could contain Team formations. My cross validated predictions are compared with the predictions bookys made and comparing metrics are engineered. The most important metric I use in model tuning is the percentage profit I would have made, assumed I consequently applyed my predictions in betting against the parsed booky odds.
-
-Feel free to check it out on github TODO.
 
 ## Data
 
 The match, team and player data are collected from [transfermarkt.de](http://www.transfermarkt.de/) and [kicker.de](http://www.kicker.de/). Booky odds are collected from [sfstats.net](http://de.sfstats.net/).
 
-Relevant data will be of germanies 1. Bundesliga for seasons 2005-2015. 
+Relevant data will be of germanies 1. Bundesliga for seasons 2005-2015.  
 
 ```{r echo=FALSE, results='hide',message=FALSE}
 library(ggplot2)
@@ -61,30 +56,41 @@ toMatchday <- 34
 seasons <- c('2005-2006', '2006-2007', '2007-2008', '2008-2009', '2009-2010', 
              '2010-2011', '2011-2012', '2012-2013', '2013-2014', '2014-2015')
 leagues <- c('BL1')
-data <- loadTrainingData(toMatchday, seasons, leagues)
+data <- loadTrainingData(toMatchday, seasons, leagues, dbName = 'soccerlabdata2.0')
 matches <- data$matches
 odds <- data$odds
 stats <- data$stats
 ```
-For reproducability the data object is saved in data/BL1_2005-2015.Rds.
 
-### Datasets
+* matches: Matches for Germanies 1. Bundesliga for seasons 2005-2015  
+* odds: Booky odds and probabilies for all matches  
+* stats: Player - match data, including played position, actual marketprice and kicker grade, the player got for his performance  
 
-matches -> contains all matches with some informative properties  
-odds -> contains booky odds and probabilies for all matches  
-stats -> an observation contains information for one player in one match  
+There are ´r nrow(matches)´matches and ´r nrow(stats)´ related player - match data.
 
-Here is a brief exploration of the raw data:
+Player marketprice statistics:
+
 ```{r warning=FALSE, message=FALSE}
-describe(select(matches, goalsHome, goalsVisitors, matchResult))
-describe(select(odds, HomeVictory, VisitorsVictory, Draw))
-describe(select(stats, fitPrice, position, playerAssignment, formation))
+summary(stats$fitPrice)
 ```
 
 
+### Remarks on booky odds
+
+The bookies probability of a match outcome is the odds reciproke. For a match their probabilities do not sum up to 1, but to a value above 1. This is a booky margin, the main cause they make money and a big disadvantage for the punter. This margin decreases the payout in comparison to a fair bet.    
+
+Booky margin statistics:
+
+```{r warning=FALSE, message=FALSE}
+exploreOdds <- mutate(odds, bookyProbSum = 
+                          HomeVictory + VisitorsVictory + Draw - 1)
+filter(exploreOdds, bookyProbSum < 0)
+summary(exploreOdds$bookyProbSum)
+```
+
 ## Feature Engineering
 
-The features I extract are the marketprices of participating players aggregated by team (Home, Visitors), grouped position (TW, DEF, MID, OFF) and aggregation method (min, max, avg, sum). The grouping and aggregation creates price features on a match level. Players are integrated who are in the starting lineup. For the players on bench extra features are engineered.
+The engineered features solely correspond to the marketprices of players. All players in the starting lineup are taken into consideration. The players on bench participate in specially dedicated features. The prices are grouped by Position (tw, def, mid, off), Team (Home, Visitors) and aggregation Function (min, max, avg, sum).
 
 ```{r warning=FALSE, message=FALSE, cache=TRUE}
 source(file = '../featureEngineering/positionFeatureExtraction.R', echo = FALSE, encoding = 'UTF-8')
@@ -93,61 +99,41 @@ assignedPositions <- c('tw', 'def', 'def', 'def', 'mid', 'mid', 'mid',
 relNormalAssignments <- c('DURCHGESPIELT', 'AUSGEWECHSELT')
 priceFuncts <- c('min', 'max', 'avg', 'sum')
 benchPriceFuncts <- c('max', 'avg')
-priceFeaturedMatches <- extractMatchResultFeatures(stats, matches, assignedPositions, relNormalAssignments,
-                                                   priceFuncts = priceFuncts, benchPriceFuncts = benchPriceFuncts)
-colnames(priceFeaturedMatches)
+priceFeaturedMatches <- extractMatchResultFeatures(stats, matches, assignedPositions, relNormalAssignments, priceFuncts = priceFuncts, benchPriceFuncts = benchPriceFuncts)
+
 features <- priceFeaturedMatches[, grepl('Price', colnames(priceFeaturedMatches))]
 ```
-So we have `r length(features)` features and `r nrow(features)` observations.
+
+Some features for bench players and for position tw (Torwart = goaly) are left out, because they don't add much value.
+
+So we have `r length(features)` features. 
 
 ### Feature correlation
+
+Let's explore the features in comparison to each other. For the sake of overview I select just the features for home teams.
 
 ```{r warning=FALSE, message=FALSE}
 # Position and Function correlation for price features of home teams
 priceHomeData <- features[, grepl('Home', colnames(features))]
 colnames(priceHomeData) <- gsub('_Price', '', gsub('_Home', '', colnames(priceHomeData)))
 priceCorrData <- cor(priceHomeData)
-corrplot(priceCorrData, order = 'AOE')
-## => the aggregation functions have a very high correlation between each other
+corrplot(priceCorrData, order = 'AOE',
+         title = 'Position and Function correlations for price features of home teams')
 ```
 
-TODO
+TODO Interpretation & Evtl. delting some features
 
-### Correlation between goalDiff and selected features
-
-```{r}
-theme1 <- trellis.par.get()
-theme1$plot.symbol$col = rgb(.2, .2, .2, .4)
-theme1$plot.symbol$pch = 16
-theme1$plot.line$col = rgb(1, 0, 0, .7)
-theme1$plot.line$lwd <- 2
-trellis.par.set(theme1)
-
-# Correlation between the goalDiff and different aggregation 
-# Functions of the Price of offensive or midfield players
-offPriceCols <- grepl('Price', colnames(features)) & 
-  (grepl('off', colnames(features)) | grepl('mid', colnames(features))) &
-  grepl('Home', colnames(features)) & !grepl('Bench', colnames(features))
-offPriceData <- features[, offPriceCols]
-colnames(offPriceData) <- gsub('off_', '', gsub('_Price', '', gsub('Home_', '', colnames(offPriceData))))
-
-featurePlot(x = offPriceData, y = priceFeaturedMatches$goalDiff,
-            plot = 'scatter', layout = c(2, 2),
-            type = c('p', 'smooth'), span = .5)
-## => off-price-home-features are slightly correlated with goalDiff
-```
-
-TODO
 
 ## Model fitting and tuning
 
-The target of the model tuning process is to find a model which maximizes the simulated profit [%]. This is a custom metric and implemented in the function betMetricsSummary. This function is integrated in the caret resampling and tuning process (caret is so great!!).
+The target of the model tuning process is to find a model which maximizes the simulated profit [%]. This is a custom metric and implemented in the function betMetricsSummary. This function is integrated in the caret resampling and tuning process (caret is so great!!). I did some prework to find areas of parameter values which tend to give good results. Here, just the fine tuning is done.  
+  
+The applied model is extreme gradient boosting, a popular algorithm which is known to have very good and stable predictive performance in various different cases. Additionally it has a lot of fine tuning potential and supports parallel processing.
 
-The applied model is extreme gradient boosting, a popular algorithm which is know to have very good and stable predictive performance in various different cases. Additionally it has a lot of fine tuning potential and supports parallel processing.
 
 ### Configuration of the fitting process
 
-I use 5-fold cross validation first. 10-fold would be probably better, but calculation would take much longer. A static seed is set to make the results reproduceable.
+I use 5-fold cross validation first. 10-fold would be probably better, but calculation would take much longer.
 
 ```{r warning=FALSE, message=FALSE}
 source(file = '../models/models.R', 
@@ -162,13 +148,13 @@ resultFormula <- as.formula('matchResult ~ . -matchId -goalsHome -goalsVisitors 
 
 ### Extreme Gradiant Boosing
 
-Tuning Parameters: 
-- nrounds (# Boosting Iterations)
-- max_depth (Max Tree Depth), 
-- eta (Shrinkage)
-- gamma (Minimum Loss Reduction)
-- colsample_bytree (Subsample Ratio of Columns) 
-- min_child_weight (Minimum Sum of Instance Weight)
+Tuning Parameters:  
+- nrounds (# Boosting Iterations)  
+- max_depth (Max Tree Depth)  
+- eta (Shrinkage)  
+- gamma (Minimum Loss Reduction)  
+- colsample_bytree (Subsample Ratio of Columns)   
+- min_child_weight (Minimum Sum of Instance Weight)  
 
 ```{r warning=FALSE, message=FALSE, cache=TRUE}
 # Set tuning parameter sets #
@@ -201,9 +187,8 @@ confMatrix <- confusionMatrix(testPred, reference = modelInput$matchResult)
 confMatrix$overall[1:2]
 ```
 
+TODO comparison with benchmarks
 
 
 # Results and Forecast
-
-The results are not overwhelming. The final model is very unstable concerning the profit (high SD). The minimum requirement for applying the model on real bets is a positive GainPerc over all folds and at least > 5%.
-To achieve this, I think it is necessary to integrate new features. Imaginable features could describe team formations or distance of the visiting team to travel. A disadvantage of featured based on marketprices of players is, that the marketprices are created twice a year, so they describe the long term quality of a player. A way to integrate short term form predictors of players is to engineer features based on the kicker.de grade associated to players in past matches.
+TODO

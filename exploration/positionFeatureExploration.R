@@ -18,6 +18,7 @@ benchPriceFuncts <- c('max', 'avg')
 priceFeaturedMatches <- extractMatchResultFeatures(stats, matches, assignedPositions, relNormalAssignments,
                                                    priceFuncts = priceFuncts, benchPriceFuncts = benchPriceFuncts)
 saveRDS(priceFeaturedMatches, file = 'data/featuredMatches/priceFeatured.Rds')
+priceFeaturedMatches <- readRDS(file = 'data/featuredMatches/priceFeatured.Rds')
 
 formFuncts <- c('min', 'max', 'avg')
 benchFormFuncts <- c('min', 'avg')
