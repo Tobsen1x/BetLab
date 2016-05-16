@@ -8,10 +8,10 @@ extractMatchResultFeatures <- function(playerStats,
                                        benchFormFuncts = c()) {
   ### Assemble relevant positions
   # Grouping positions
-  colNames <- levels(playerStats$position)
+  colNames <- levels(playerStats$position) 
   groupedPositions <- as.data.frame(t(assignedPositions))
   colnames(groupedPositions) <- colNames
-  playerStats$groupedPosition <- sapply(playerStats$position, FUN = function(x) groupedPositions[1, x])
+  playerStats$groupedPosition <- groupPositions(playerStats$position, assignedPositions)
   
   featureNames <- extractFeatureNames(assignedPositions, priceFuncts, formFuncts, 
                                       benchPriceFuncts, benchFormFuncts)
@@ -48,8 +48,62 @@ extractMatchResultFeatures <- function(playerStats,
   return(matches)
 }
 
-imputeFeaturedValues <- function(featuredMatches, staticPriceImpute = 0,
-                                 staticFormImpute = 4.0) {
+# Requires symmetrical Home and Visitors Features
+extractInteractionFeatures <- function(featuredMatches, priceImpute = 50000) {
+  featureCols <- grepl('_Price', colnames(featuredMatches)) |
+    grepl('_Form', colnames(featuredMatches))
+  features <- featuredMatches[, featureCols]
+  nonFeatures <- featuredMatches[, !featureCols]
+  homeFeatures <- features[, grepl('_Home_', colnames(features))]
+  
+  interactFeaturedMatches <- data.frame()
+  for(col in colnames(homeFeatures)) {
+    homeFeat <- features[, col]
+    # Replace Home with visitors
+    visFeatName <- gsub('_Home_', '_Visitors_', col)
+    visitorsFeat <- features[, visFeatName]
+    
+    ### Impute Price Feature ###
+    if(grepl('_Price', col)) {
+      homeFeat[homeFeat == 0] <- priceImpute
+      visitorsFeat[visitorsFeat == 0] <- priceImpute
+    }
+    
+    ### Interact Features ###
+    diffFeature <- homeFeat - visitorsFeat
+    diffColName <- gsub('_Home_', '_Diff_', col)
+    diffFea <- data.frame(diffFeature)
+    colnames(diffFea) <- diffColName
+    if(nrow(interactFeaturedMatches) == 0) {
+      interactFeaturedMatches <- diffFea
+    } else {
+      interactFeaturedMatches <- cbind(interactFeaturedMatches, diffFea)
+    }
+    if(grepl('_Price', col)) {
+      ratioFeature <- log(homeFeat / visitorsFeat)
+      ratioColName <- gsub('_Home_', '_Ratio_', col)
+      ratioFea <- data.frame(ratioFeature)
+      colnames(ratioFea) <- ratioColName
+      interactFeaturedMatches <- cbind(interactFeaturedMatches, ratioFea)
+    }
+  }
+  
+  interactFeaturedMatches <- cbind(nonFeatures, interactFeaturedMatches)
+  return(interactFeaturedMatches)
+}
+
+groupPositions <- function(positions, assignedPositions) {
+  colNames <- levels(positions)
+  groupedPositions <- as.data.frame(t(assignedPositions))
+  colnames(groupedPositions) <- colNames
+  groupedPos <- sapply(positions, FUN = function(x) groupedPositions[1, x])
+  return(groupedPos)
+}
+
+
+# Imputation should just be for bench features,
+# so it is not that important
+imputeFeaturedValues <- function(featuredMatches, staticPriceImpute = 50000, staticFormImpute = -0.25) {
   # Impute Price features
   priceColIndexes <- grep('Price', colnames(featuredMatches))
   priceFeatures <- featuredMatches[, priceColIndexes]

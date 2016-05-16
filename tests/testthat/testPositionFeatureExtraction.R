@@ -1,6 +1,6 @@
 context("Form Feature Exctraction")
 data <- readRDS(file = paste(Sys.getenv('DATA_PATH'), 'BL1_2005-2015.Rds', sep = ''))
-formEnrichedStats <- readRDS(file = paste(Sys.getenv('DATA_PATH'), 'formEnriched/111.Rds', sep = ''))
+formEnrichedStats <- readRDS(file = paste(Sys.getenv('DATA_PATH'), 'formEnriched/122_SBI-0.25_SNPI-0.4_PD60.Rds', sep = ''))
 
 # Engineer features
 assignedPositions <- c('tw', 'def', 'def', 'def', 'mid', 'mid', 'mid', 
@@ -27,13 +27,13 @@ test_that('extractFeatureNames column count', {
 featuredMatches <- extractMatchResultFeatures(relStats, relMatch, assignedPositions, relNormalAssignments,
                                               priceFuncts, formFuncts, benchPriceFuncts, benchFormFuncts)
 
-priceFeatures <- featuredMatches[, grep('Price', colnames(featuredMatches))]
-formFeatures <- featuredMatches[, grep('Form', colnames(featuredMatches))]
+priceFeatures <- featuredMatches[, grep('_Price', colnames(featuredMatches))]
+formFeatures <- featuredMatches[, grep('_Form', colnames(featuredMatches))]
 
 test_that("Correct feature values", {
   expect_equal(sum(is.na(featuredMatches)), 0)
   expect_true(sum(priceFeatures < 0) == 0)
-  expect_true(sum(formFeatures < 1.0) == 0)
+  expect_true(sum(formFeatures < -6.0) == 0)
   expect_true(sum(formFeatures > 6.0) == 0)
 })
 

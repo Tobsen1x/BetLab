@@ -1,5 +1,5 @@
 loadTrainingData <- function(toMatchday, seasons, 
-                             leagues, dbName = 'soccerlabdata') {
+                             leagues, dbName = 'soccerlabdata', fitPriceImpute = 50000) {
     con <- dbConnect(MySQL(), user="root", password="root",
                      dbname=dbName)
     
@@ -77,6 +77,17 @@ loadTrainingData <- function(toMatchday, seasons,
     playerStats <- rbind(playerStats, dbGetQuery(con, visitorsLineupStatsQuery))
     playerStats <- rbind(playerStats, dbGetQuery(con, visitorsBenchStatsQuery))
     
+    
+    # Remove players who wrongly play in the same match in both teams
+    statsGroup <- group_by(playerStats, matchId, playerId)
+    statsSum <- summarise(statsGroup, sum = n())
+    multiStats <- filter(statsSum, sum != 1)
+    multiStats <- filter(playerStats, matchId %in% multiStats$matchId, playerId %in% multiStats$playerId)
+    # remove home Entries
+    playerStats <- filter(playerStats, !(matchId %in% multiStats$matchId &
+                            playerId %in% multiStats$playerId & home == 1))
+    
+    
     # replace Libero transPos with Innenverteidiger
     playerStats$position[playerStats$position == 'Libero'] = 'Innenverteidiger'
     playerStats$position[playerStats$position == 'Sturm'] = 'Mittelstuermer'
@@ -123,7 +134,6 @@ loadTrainingData <- function(toMatchday, seasons,
                              position = factor(position, positionLevels))#,
                              #staticPosition = factor(staticPosition, positionLevels))
     
-   #playerStats$staticPosition[is.na(playerStats$staticPosition)] <- 'Zentrales Mittelfeld'
     
     ### Reading player prices
     priceQuery <- 'select sp.id as playerId, preis.informationDate, 
@@ -147,39 +157,14 @@ loadTrainingData <- function(toMatchday, seasons,
     finData <- dplyr:::left_join(playerStats, secMergedData, by = c('playerId' = 'playerId', 'matchId' = 'matchId'))
     playerStats <- dplyr:::rename(finData, fitPrice = price, fitPriceDate = dateMax)
     
-    #TEST
-    #finData <- arrange(finData, matchId, home, position, playerId)
-    #examples <- sample_n(finData, size = 10)
-    #View(examples)
-    #paste(examples$playerId, sep = ',')
-    
-    # Old way
-    #playerStats$fitPrice <- NA
-    #playerStats$fitPriceDate <- NA
-    #for(i in 1:nrow(playerStats)) {
-    #    row <- playerStats[i, ]
-    #    price <- getFitPrice(player = row$playerId, prices, matchtime = row$matchtime)
-    #    playerStats[i, ]$fitPrice <- price[1]
-    #    playerStats[i, ]$fitPriceDate <- price[2]
-    #}
     
     playerStats$fitPriceDate <- as.Date(playerStats$fitPriceDate, 
                                         origin = "1970-01-01")
     
+    ## Impute fit price
+    playerStats$fitPrice[is.na(playerStats$fitPrice)] <- fitPriceImpute
+    playerStats$fitPriceDate[is.na(playerStats$fitPriceDate)] <- as.Date('2004-06-01', origin = "1970-01-01")
     
-    ### Reading Booky Odds
-    oddQuery <- 'select spiel_id as matchId, quoteHeim as homeOdd, 
-        quoteAusw as visitorsOdd, quoteUnent as drawOdd
-    from quote where quelle = \'SfStat\'';
-    odds <- dbGetQuery(con, oddQuery)
-    
-    # Enrich odds with probabilities
-    odds$HomeVictory <- 1 / odds$homeOdd
-    odds$VisitorsVictory <- 1 / odds$visitorsOdd
-    odds$Draw <- 1 / odds$drawOdd
-    
-    odds <- filter(odds, !is.infinite(Draw) & 
-                       !is.infinite(VisitorsVictory) & !is.infinite(HomeVictory))
     
     ## Reading matches
     matchQuery <- sprintf('select sp.id as matchId, 
@@ -206,6 +191,21 @@ loadTrainingData <- function(toMatchday, seasons,
                                     labels = c('VisitorsVictory', 'Draw', 'HomeVictory'), 
                                     ordered = TRUE))
     matches <- arrange(matches, season, matchday, matchtime, matchId)
+    
+    ### Reading Booky Odds
+    oddQuery <- 'select spiel_id as matchId, quoteHeim as homeOdd, 
+    quoteAusw as visitorsOdd, quoteUnent as drawOdd
+    from quote where quelle = \'SfStat\'';
+    odds <- dbGetQuery(con, oddQuery)
+    
+    # Enrich odds with probabilities
+    odds$HomeVictory <- 1 / odds$homeOdd
+    odds$VisitorsVictory <- 1 / odds$visitorsOdd
+    odds$Draw <- 1 / odds$drawOdd
+    
+    odds <- filter(odds, !is.infinite(Draw) & 
+                     !is.infinite(VisitorsVictory) & !is.infinite(HomeVictory))
+    odds <- filter(odds, matchId %in% matches$matchId)
     
     
     result <- list('stats' = playerStats, 'prices' = prices, 'odds' = odds,

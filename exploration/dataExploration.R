@@ -2,10 +2,9 @@
 source(file = 'dataProvider/loadData.R', echo = FALSE, encoding = 'UTF-8')
 toMatchday <- 34
 seasons <- c('2005-2006', '2006-2007', '2007-2008', '2008-2009', '2009-2010', 
-             '2010-2011', '2011-2012', '2012-2013', '2013-2014', '2014-2015')
+             '2010-2011', '2011-2012', '2012-2013', '2013-2014', '2014-2015', '2015-2016')
 leagues <- c('BL1')
-data <- loadTrainingData(toMatchday, seasons, leagues, dbName = 'soccerlabdata2.0')
-# Save it Digga
+data <- loadTrainingData(toMatchday, seasons, leagues, dbName = 'soccerlabdata')
 saveRDS(data, file="data/BL1_2005-2015.Rds")
 ###
 
@@ -15,8 +14,16 @@ stats <- data$stats
 matches <- data$matches
 odds <- data$odds
 
-# Exploring match - player - stats
-describe(select(data$stats, season, position, playerAssignment, fitPrice))
+# Exploring datasets
+describe(matches)
+describe(stats)
+describe(odds)
+
+statsGroup <- group_by(stats, matchId, playerId)
+statsSum <- summarise(statsGroup, sum = n())
+multiStats <- filter(statsSum, sum != 1)
+multiStats <- filter(stats, matchId %in% multiStats$matchId, playerId %in% multiStats$playerId)
+
 
 # TODO Move to test
 # All positions have to be set

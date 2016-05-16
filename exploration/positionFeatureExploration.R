@@ -1,12 +1,12 @@
 # loading data
 data <- readRDS(file = 'data/BL1_2005-2015.Rds')
-
 stats <- data$stats
 matches <- data$matches
+odds <- data$odds
 
 # Reading Form enriched Data
-formEnrichedStats <- readRDS(file="data/formEnriched/111.Rds")
-describe(stats$fitPrice)
+formEnrichedStats <- readRDS(file="data/formEnriched/222.Rds")
+describe(formEnrichedStats$formForecast)
 ### Execute Feature Extraction ###
 # Engineer features
 source(file = 'featureEngineering/positionFeatureExtraction.R', echo = FALSE, encoding = 'UTF-8')
@@ -15,39 +15,44 @@ assignedPositions <- c('tw', 'def', 'def', 'def', 'mid', 'mid', 'mid',
 relNormalAssignments <- c('DURCHGESPIELT', 'AUSGEWECHSELT')
 priceFuncts <- c('min', 'max', 'avg', 'sum')
 benchPriceFuncts <- c('max', 'avg')
-priceFeaturedMatches <- extractMatchResultFeatures(stats, matches, assignedPositions, relNormalAssignments,
-                                                   priceFuncts = priceFuncts, benchPriceFuncts = benchPriceFuncts)
-saveRDS(priceFeaturedMatches, file = 'data/featuredMatches/priceFeatured.Rds')
-priceFeaturedMatches <- readRDS(file = 'data/featuredMatches/priceFeatured.Rds')
+
+########################################
+########## Form Exploration ############
+########################################
 
 formFuncts <- c('min', 'max', 'avg')
-benchFormFuncts <- c('min', 'avg')
+benchFormFuncts <- c('max', 'avg')
 featuredMatches <- extractMatchResultFeatures(formEnrichedStats, matches, assignedPositions, relNormalAssignments,
                                               priceFuncts = priceFuncts, formFuncts = formFuncts, 
                                               benchPriceFuncts = benchPriceFuncts, benchFormFuncts = benchFormFuncts)
-saveRDS(featuredMatches, file="data/featuredMatches/111.Rds")
+saveRDS(featuredMatches, file="data/featuredMatches/222.Rds")
 ###
 
 # Load featured Matches
-featuredMatches <- readRDS(file = "data/featuredMatches/111.Rds")
+featuredMatches <- readRDS(file = "data/featuredMatches/222.Rds")
 describe(featuredMatches)
 
-colsToInclude <- 12:83
-colsToExplore <- featuredMatches[, colsToInclude]
+### Interaction Features ###
 
-# Position and Function correlation
-priceHomeCols <- grepl('Price', colnames(colsToExplore)) & 
-  grepl('Home', colnames(colsToExplore))
-priceHomeData <- colsToExplore[, priceHomeCols]
-colnames(priceHomeData) <- gsub('_Price', '', gsub('_Home', '', colnames(priceHomeData)))
-priceCorrData <- cor(priceHomeData)
-corrplot(priceCorrData, order = 'AOE')
-## => the aggregation functions have a very high correlation between each other
+interactFeaturedMatches <- extractInteractionFeatures(featuredMatches)
+describe(interactFeaturedMatches[, grepl('tw', colnames(interactFeaturedMatches))])
+saveRDS(interactFeaturedMatches, file="data/featuredMatches/interact_222.Rds")
+
+
+
+# All feature correlation
+featureCols <- grepl('_Form', colnames(featuredMatches)) |
+  grepl('_Price', colnames(featuredMatches))
+features <- featuredMatches[, featureCols]
+homeFeatures <- features[,grepl('_Home', colnames(features))]
+colnames(homeFeatures) <- gsub('_Home', '', colnames(homeFeatures))
+homeCorrData <- cor(homeFeatures)
+corrplot(homeCorrData, order = 'AOE')
 
 # Form and Function correlation
-formHomeCols <- grepl('Form', colnames(colsToExplore)) & 
-  grepl('Home', colnames(colsToExplore))
-formHomeData <- colsToExplore[, formHomeCols]
+formHomeCols <- grepl('Form', colnames(features)) & 
+  grepl('Home', colnames(features))
+formHomeData <- features[, formHomeCols]
 colnames(formHomeData) <- gsub('_Form', '', gsub('_Home', '', colnames(formHomeData)))
 formCorrData <- cor(formHomeData)
 corrplot(formCorrData, order = 'AOE')
@@ -55,14 +60,13 @@ corrplot(formCorrData, order = 'AOE')
 ## => form features do not correlate as much as price features
 
 # Price-Form Correlations
-priceFormCols <- (grepl('Form', colnames(colsToExplore)) | grepl('Price', colnames(colsToExplore))) &
-  grepl('Home', colnames(colsToExplore)) & grepl('avg', colnames(colsToExplore))
-priceFormData <- colsToExplore[, priceFormCols]
+priceFormCols <- (grepl('Form', colnames(features)) | grepl('Price', colnames(features))) &
+  grepl('Home', colnames(features)) & grepl('avg', colnames(features))
+priceFormData <- features[, priceFormCols]
 colnames(priceFormData) <- gsub('_avg', '', gsub('_Home', '', colnames(priceFormData)))
 priceFormCorrData <- cor(priceFormData)
 corrplot(priceFormCorrData, order = 'AOE')
-## => Price and Form is negative correlated => cheaper players get worse grades
-## => The form and price features between each other are significantly correlated @toProof
+
 
 
 ####### Correlation between results and features ##########
@@ -103,3 +107,20 @@ formPriceCorr <- cor(formPriceCorrData)
 corrplot(formPriceCorr, method = 'number')
 ## => Price correlates significantly better with goalDiff than form @toProof
 ## => Price and form are highly negatively correlated => cheap players get bad grades
+
+priceFeaturedMatches <- extractMatchResultFeatures(stats, matches, assignedPositions, relNormalAssignments,
+                                                   priceFuncts = priceFuncts, benchPriceFuncts = benchPriceFuncts)
+saveRDS(priceFeaturedMatches, file = 'data/featuredMatches/priceFeatured.Rds')
+priceFeaturedMatches <- readRDS(file = 'data/featuredMatches/priceFeatured.Rds')
+
+
+######### Just Price Exploration ###
+
+features <- priceFeaturedMatches[, grepl('Price', colnames(priceFeaturedMatches))]
+# Position and Function correlation for price features of home teams
+priceHomeData <- features[, grepl('Home', colnames(features))]
+colnames(priceHomeData) <- gsub('_Price', '', gsub('_Home', '', colnames(priceHomeData)))
+priceCorrData <- cor(priceHomeData)
+corrplot(priceCorrData, order = 'AOE',
+         title = 'Position and Function correlations for price features of home teams')
+## => Reduce def_sum, off_sum, mid_sum, avg_Bench - features

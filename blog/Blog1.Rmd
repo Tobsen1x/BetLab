@@ -5,7 +5,7 @@ date: "18 März 2016"
 output: html_document
 ---
 
-Beating the booky in prediction performance is an ambitious goal. Odds calculating companies (further refered to as bookys) put a huge effort in calculating accurate probabilities. I expect them to have large statistic branches with a lot of manual predicting support from sport analysts. Never the less, there are conditions, which could be exploited to gain an advantage: 
+Beating the booky in prediction performance is an ambitious goal. Odds calculating companies (further refered to as bookys) put a huge effort in calculating accurate probabilities. I expect them to have large statistic branches with a lot of manual predicting support from sport analysts. Never the less, there are conditions, which could be exploited to gain an advantage:  
 1. Market behaviour: Bookys adjust their odds depending on market behaviour, which is expected to be irrational  
 2. Feature variety: Using different kinds of features than bookies  
 3. Domain limitation: Concentrating on German 1. Bundesliga  
@@ -25,7 +25,7 @@ The match, team and player data are collected from [transfermarkt.de](http://www
 
 Relevant data will be of germanies 1. Bundesliga for seasons 2005-2015.  
 
-```{r echo=FALSE, results='hide',message=FALSE}
+```{r loadLibs, echo=FALSE, results='hide',message=FALSE}
 library(ggplot2)
 library(vioplot)
 library(corrplot)
@@ -50,13 +50,13 @@ library(plyr)
 library(dplyr)
 ```
 
-```{r warning=FALSE, message=FALSE, cache=TRUE}
+```{r loadData, warning=FALSE, message=FALSE, cache=TRUE}
 source(file = '../dataProvider/loadData.R', echo = FALSE, encoding = 'UTF-8')
 toMatchday <- 34
 seasons <- c('2005-2006', '2006-2007', '2007-2008', '2008-2009', '2009-2010', 
              '2010-2011', '2011-2012', '2012-2013', '2013-2014', '2014-2015')
 leagues <- c('BL1')
-data <- loadTrainingData(toMatchday, seasons, leagues, dbName = 'soccerlabdata2.0')
+data <- loadTrainingData(toMatchday, seasons, leagues, dbName = 'soccerlabdata')
 matches <- data$matches
 odds <- data$odds
 stats <- data$stats
@@ -66,11 +66,10 @@ stats <- data$stats
 * odds: Booky odds and probabilies for all matches  
 * stats: Player - match data, including played position, actual marketprice and kicker grade, the player got for his performance  
 
-There are ´r nrow(matches)´matches and ´r nrow(stats)´ related player - match data.
+There are `r nrow(matches)` matches and `r nrow(stats)` related player - match data.
 
-Player marketprice statistics:
-
-```{r warning=FALSE, message=FALSE}
+```{r marketpriceSummary, warning=FALSE, message=FALSE}
+# Summary of marketprices
 summary(stats$fitPrice)
 ```
 
@@ -81,18 +80,24 @@ The bookies probability of a match outcome is the odds reciproke. For a match th
 
 Booky margin statistics:
 
-```{r warning=FALSE, message=FALSE}
-exploreOdds <- mutate(odds, bookyProbSum = 
-                          HomeVictory + VisitorsVictory + Draw - 1)
-filter(exploreOdds, bookyProbSum < 0)
-summary(exploreOdds$bookyProbSum)
+```{r bookyMargin, warning=FALSE, message=FALSE}
+exploreOdds <- mutate(odds, bookyMargin = 
+                          (HomeVictory + VisitorsVictory + Draw - 1) * 100)
+# 13 matches have incorrect values -> bookyProbSum < 1
+exploreOdds <- filter(exploreOdds, bookyMargin >= 0)
+ggplot(exploreOdds, aes(x = bookyMargin)) + 
+    geom_histogram(aes(y=..density..),
+                   binwidth=.5,
+                   colour="darkgreen", fill="white") +
+    scale_x_continuous(breaks = round(seq(min(exploreOdds$bookyMargin), max(exploreOdds$bookyMargin), by = 1), 0)) +
+  ggtitle('Booky Margin per match [%]')
 ```
 
 ## Feature Engineering
 
 The engineered features solely correspond to the marketprices of players. All players in the starting lineup are taken into consideration. The players on bench participate in specially dedicated features. The prices are grouped by Position (tw, def, mid, off), Team (Home, Visitors) and aggregation Function (min, max, avg, sum).
 
-```{r warning=FALSE, message=FALSE, cache=TRUE}
+```{r featureEngineering, warning=FALSE, message=FALSE, cache=TRUE}
 source(file = '../featureEngineering/positionFeatureExtraction.R', echo = FALSE, encoding = 'UTF-8')
 assignedPositions <- c('tw', 'def', 'def', 'def', 'mid', 'mid', 'mid', 
                        'mid', 'off', 'off', 'off', 'off', 'off')
@@ -112,7 +117,7 @@ So we have `r length(features)` features.
 
 Let's explore the features in comparison to each other. For the sake of overview I select just the features for home teams.
 
-```{r warning=FALSE, message=FALSE}
+```{r featureCorrelation, warning=FALSE, message=FALSE}
 # Position and Function correlation for price features of home teams
 priceHomeData <- features[, grepl('Home', colnames(features))]
 colnames(priceHomeData) <- gsub('_Price', '', gsub('_Home', '', colnames(priceHomeData)))
@@ -121,24 +126,23 @@ corrplot(priceCorrData, order = 'AOE',
          title = 'Position and Function correlations for price features of home teams')
 ```
 
-TODO Interpretation & Evtl. delting some features
+=> All sum - features and all Bench - avg - features will be removed, because they are highly correlated with other features.
 
 
 ## Model fitting and tuning
 
-The target of the model tuning process is to find a model which maximizes the simulated profit [%]. This is a custom metric and implemented in the function betMetricsSummary. This function is integrated in the caret resampling and tuning process (caret is so great!!). I did some prework to find areas of parameter values which tend to give good results. Here, just the fine tuning is done.  
-  
-The applied model is extreme gradient boosting, a popular algorithm which is known to have very good and stable predictive performance in various different cases. Additionally it has a lot of fine tuning potential and supports parallel processing.
+The target of the model tuning process is to find a model which maximizes the simulated profit [%]. This is a custom metric and implemented in the function betMetricsSummary. This function is integrated in the caret resampling and tuning process (caret is so great!!). I did some prework to find areas of parameter values which tend to give good results. Here, just the fine tuning is done. The applied model is extreme gradient boosting, a popular algorithm which is known to have very good and stable predictive performance in various different cases. Additionally it has a lot of fine tuning potential and supports parallel processing.
 
 
 ### Configuration of the fitting process
 
-I use 5-fold cross validation first. 10-fold would be probably better, but calculation would take much longer.
-
-```{r warning=FALSE, message=FALSE}
+```{r fittingConfiguration, warning=FALSE, message=FALSE}
 source(file = '../models/models.R', 
        echo = FALSE, encoding = 'UTF-8')
 modelInput <- selectModelInput(priceFeaturedMatches)
+# Reduce highly correlated features
+modelInput <- reducePriceFeatures(modelInput)
+
 seed <- 16450
 customCvContr <- trainControl(method = 'cv', number = 5, classProbs = TRUE, 
                               summaryFunction = betMetricsSummary)
@@ -148,6 +152,8 @@ resultFormula <- as.formula('matchResult ~ . -matchId -goalsHome -goalsVisitors 
 
 ### Extreme Gradiant Boosing
 
+TODO Describe parameter areas in respect of overfitting...
+
 Tuning Parameters:  
 - nrounds (# Boosting Iterations)  
 - max_depth (Max Tree Depth)  
@@ -156,11 +162,11 @@ Tuning Parameters:
 - colsample_bytree (Subsample Ratio of Columns)   
 - min_child_weight (Minimum Sum of Instance Weight)  
 
-```{r warning=FALSE, message=FALSE, cache=TRUE}
+```{r modelTuning, warning=FALSE, message=FALSE, cache=TRUE}
 # Set tuning parameter sets #
-extrBoostGrid <- expand.grid(nrounds = (1:5)*100,
-                             max_depth = c(2, 3),
-                             eta = c(.01, .025, .05),
+extrBoostGrid <- expand.grid(nrounds = 50 + (1:5)*50,
+                             max_depth = c(4,5,6),
+                             eta = c(.08,.1,.12),
                              gamma = c(0),
                              colsample_bytree = 1,
                              min_child_weight = 1)
@@ -171,24 +177,55 @@ priceXGBoostModel <- train(form = resultFormula, data = modelInput,
                            tuneGrid = extrBoostGrid, metric = 'GainPerc',
                            objective = 'multi:softprob', num_class = 3, 
                            allowParallel = TRUE)
+```
 
-priceXGBoostModel$results[as.integer(rownames(
+# Results
+
+```{r tuningResults, warning=FALSE, message=FALSE}
+results <- priceXGBoostModel$results[as.integer(rownames(
   priceXGBoostModel$results)) == as.integer(rownames(priceXGBoostModel$bestTune)), ]
 
+# Tuning Profile
 trellis.par.set(caretTheme())
 plot(priceXGBoostModel)
-vioplot(priceXGBoostModel$resample$GainPerc, names = 'Profit [%]', col = 'green')
-title('Violin Plot of Profit Percentage in resamples')
-summary(priceXGBoostModel$resample$GainPerc)
 
 # Non-resampled training performance
 testPred <- predict(priceXGBoostModel, modelInput)
 confMatrix <- confusionMatrix(testPred, reference = modelInput$matchResult)
-confMatrix$overall[1:2]
+confMatrix$overall
 ```
 
-TODO comparison with benchmarks
+TODO Say something about overfitting
 
+```{r profitSummary, warning=FALSE, message=FALSE}
+vioplot(priceXGBoostModel$resample$GainPerc, names = 'Profit [%]', col = 'green')
+title('Violin Plot of Profit Percentage in resamples')
+summary(priceXGBoostModel$resample$GainPerc)
+```
 
-# Results and Forecast
-TODO
+TODO Say something about profit
+
+For comparison I use two bet strategy benchmarks:  
+1. Allways bet on home  
+2. Pick one bet on a random outcome, each game  
+
+```{r betBenchmarks, warning=FALSE, message=FALSE}
+inputData <- data.frame(rowIndex = modelInput$matchId, obs = modelInput$matchResult)
+homeVictorybenchmarkData <- fillByAllHomeBenchmark(inputData)
+level <- c('VisitorsVictory', 'Draw', 'HomeVictory')
+model <- 'HomeVictory Benchmark'
+homeVictoryBenchmark <- betMetricsSummary(homeVictorybenchmarkData, level, model)
+homeVictoryBenchmark
+
+set.seed(seed)
+randomBenchmarkData <- fillByAllRandom(inputData)
+model <- 'Random Benchmark'
+randomBenchmark <- betMetricsSummary(randomBenchmarkData, level, model)
+randomBenchmark
+```
+
+Both metrics result in poor shape as expected.
+
+# Conclusions and Forecast
+Even if the resulting, expected profit is small and it seems to be not stable att all, I see a huge potential in improving my model with additional features and tuning tweeks. The next step will be integrating aggregated form features of players. These will base on the kicker grade and will be calculated with the help of time series analysis. I expect a significantly high gain in expected profit.  
+At the point 

@@ -1,0 +1,28 @@
+2016-04-14
+
+Tuning Parameters:
+$nrounds
+[1] 100 200 300 400 500
+
+$max_depth
+[1] 3 4 5
+
+$eta
+[1] 0.05 0.10 0.15 0.20
+
+$gamma
+[1] 0.0 0.1 0.2
+
+$colsample_bytree
+[1] 1
+
+$min_child_weight
+[1] 2
+
+Best Profile:
+   eta max_depth gamma colsample_bytree min_child_weight nrounds  Accuracy
+1 0.05         3     0                1                2     100 0.4934705
+      Kappa BookyAccuracy BookyKappa GainPerc ValueDiffPerc AccuracySD
+1 0.1482004     0.5075335  0.1676127 1.248679     -3.439049 0.02503296
+    KappaSD BookyAccuracySD BookyKappaSD GainPercSD ValueDiffPercSD
+1 0.0419613      0.02240794   0.03871094   20.68398       0.3568176
