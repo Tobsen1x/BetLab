@@ -1,6 +1,7 @@
 context("Form Feature Exctraction")
 data <- readRDS(file = paste(Sys.getenv('DATA_PATH'), 'BL1_2005-2015.Rds', sep = ''))
-formEnrichedStats <- readRDS(file = paste(Sys.getenv('DATA_PATH'), 'formEnriched/122_SBI-0.25_SNPI-0.4_PD60.Rds', sep = ''))
+formEnrichedStats <- readRDS(file = paste(Sys.getenv('DATA_PATH'), 
+                                          'formEnriched/BL12015-2016_34_122_SBI-0.1_SNPI-0.2_PD60_LFI-0.4.Rds', sep = ''))
 
 # Engineer features
 assignedPositions <- c('tw', 'def', 'def', 'def', 'mid', 'mid', 'mid', 
@@ -24,8 +25,9 @@ test_that('extractFeatureNames column count', {
   expect_equal(length(featureCols), expColCount)
 })
 
+args <- list('featuredMatches.staticPriceImpute' = 50000, 'featuredMatches.staticFormImpute' = -0.25)
 featuredMatches <- extractMatchResultFeatures(relStats, relMatch, assignedPositions, relNormalAssignments,
-                                              priceFuncts, formFuncts, benchPriceFuncts, benchFormFuncts)
+                                              priceFuncts, formFuncts, benchPriceFuncts, benchFormFuncts, args)
 
 priceFeatures <- featuredMatches[, grep('_Price', colnames(featuredMatches))]
 formFeatures <- featuredMatches[, grep('_Form', colnames(featuredMatches))]

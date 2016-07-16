@@ -37,6 +37,7 @@ calculatePlayerForm <- function(stats, matches, statToCalcFor,
                                   relMatchday = statToCalcFor$matchday, 
                                   relPlayerId = statToCalcFor$playerId, 
                                   lastPriceDate = statToCalcFor$fitPriceDate,
+                                  weeksBeforeLastPriceDate = args$weeksBeforeLastPriceDate,
                                   version = versions[1])
   
   ##### grade imputation #####
@@ -60,21 +61,21 @@ calculatePlayerForm <- function(stats, matches, statToCalcFor,
 }
 
 pastMatchSelection <- function(relStats, relSeason, relMatchday, relPlayerId, version,
-                               lastPriceDate = NULL) {
+                               lastPriceDate = NULL, weeksBeforeLastPriceDate = NULL) {
   #### 1.1 Same season ####
   if(version == 1) {
     pastStats <- filter(relStats, season == relSeason, matchday < relMatchday, playerId == relPlayerId)
   } 
   #### 1.2 x weeks before last marketprice ####
   else if(version == 2) {
-    relTime <- getWeeksBefore(lastPriceDate)
+    relTime <- getWeeksBefore(lastPriceDate, weeksBeforeLastPriceDate)
     pastStats <- relStats[matchtime > relTime & playerId == relPlayerId & matchday < relMatchday, ]
   }
   
   return(pastStats)
 }
 
-getWeeksBefore <- function(lastPriceDate, weeksBeforeLastPriceDate = 1) {
+getWeeksBefore <- function(lastPriceDate, weeksBeforeLastPriceDate) {
   lastPDay <- as.POSIXct(lastPriceDate)
   lowerBound <- lastPDay - 60 * 60* 24 * 7 * weeksBeforeLastPriceDate
   return(lowerBound)
@@ -91,7 +92,7 @@ gradeImputation <- function(pastStats, matches, statToCalcFor, version, args) {
   else if(version == 2) {
     staticBenchImpute <- args$staticBenchImpute
     staticNotplayedImpute <- args$staticNotPlayedImpute
-    lowerBound <- getWeeksBefore(statToCalcFor$fitPriceDate)
+    lowerBound <- getWeeksBefore(statToCalcFor$fitPriceDate, args$weeksBeforeLastPriceDate)
     upperBound <- statToCalcFor$matchtime
     frameMatches <- filter(matches, matchtime > lowerBound, matchtime < upperBound, 
                            !(season == statToCalcFor$season & matchday >= statToCalcFor$matchday))

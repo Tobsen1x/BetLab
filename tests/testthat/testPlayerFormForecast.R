@@ -47,7 +47,7 @@ pastStats2 <- pastMatchSelection(relStats = stats, relSeason = riberyStat$season
                                  relMatchday = riberyStat$matchday, 
                                  relPlayerId = riberyStat$playerId, 
                                  lastPriceDate = riberyStat$fitPriceDate,
-                                 version = 2)
+                                 version = 2, weeksBeforeLastPriceDate = 1)
 
 test_that("pastMatchSelection", {
   expect_equal(nrow(pastStats1), 10)
@@ -55,7 +55,7 @@ test_that("pastMatchSelection", {
 })
 
 impStats1 <- gradeImputation(pastStats = pastStats1, matches = matches, statToCalcFor = riberyStat, version = 1, args = list())
-args <- list('staticBenchImpute' = -0.1, 'staticNotPlayedImpute' = -0.2)
+args <- list('staticBenchImpute' = -0.1, 'staticNotPlayedImpute' = -0.2, 'weeksBeforeLastPriceDate' = 1)
 impStats2 <- gradeImputation(pastStats = pastStats1, matches = matches, statToCalcFor = riberyStat, version = 2, args = args)
 playerForm1 <- applyForecastMethod(forecastData = impStats1, forecastMethod = linearFormDecrease, 
                                    forecastMethodArgs = 
@@ -66,7 +66,7 @@ playerForm2 <- applyForecastMethod(forecastData = impStats2, forecastMethod = li
 
 
 riberyForm1 <- calculatePlayerForm(stats = stats, matches = matches, statToCalcFor = riberyStat,
-                                  versions = c(1, 1, 1), args = list())
+                                  versions = c(1, 1, 1), args = list('weeksBeforeLastPriceDate' = 1))
 args <- append(args, list('pastDays' = 60))
 riberyForm2 <- calculatePlayerForm(stats = stats, matches = matches, statToCalcFor = riberyStat,
                                   versions = c(2, 2, 2), args = args)

@@ -5,7 +5,8 @@ extractMatchResultFeatures <- function(playerStats,
                                        priceFuncts = NA,
                                        formFuncts = c(),
                                        benchPriceFuncts = NA,
-                                       benchFormFuncts = c()) {
+                                       benchFormFuncts = c(),
+                                       args) {
   ### Assemble relevant positions
   # Grouping positions
   colNames <- levels(playerStats$position) 
@@ -41,7 +42,9 @@ extractMatchResultFeatures <- function(playerStats,
   #merged <- merge(merged, groupedFormationTable, by.x = 'auswFormation', by.y = 'formation', sort = FALSE)
   #merged <- rename(merged, auswGroupedFormation = group1)  
   
-  matches <- imputeFeaturedValues(matches)
+  matches <- imputeFeaturedValues(matches, staticPriceImpute = args$featuredMatches.staticPriceImpute,
+                                  staticFormImpute = args$featuredMatches.staticFormImpute)
+  
   matches <- selectRelevantFeatures(matches)
   matches <- arrange(matches, desc(matchtime), homeTeamId)
   
@@ -49,7 +52,7 @@ extractMatchResultFeatures <- function(playerStats,
 }
 
 # Requires symmetrical Home and Visitors Features
-extractInteractionFeatures <- function(featuredMatches, priceImpute = 50000) {
+extractInteractionFeatures <- function(featuredMatches, priceImpute) {
   featureCols <- grepl('_Price', colnames(featuredMatches)) |
     grepl('_Form', colnames(featuredMatches))
   features <- featuredMatches[, featureCols]
@@ -103,7 +106,7 @@ groupPositions <- function(positions, assignedPositions) {
 
 # Imputation should just be for bench features,
 # so it is not that important
-imputeFeaturedValues <- function(featuredMatches, staticPriceImpute = 50000, staticFormImpute = -0.25) {
+imputeFeaturedValues <- function(featuredMatches, staticPriceImpute, staticFormImpute) {
   # Impute Price features
   priceColIndexes <- grep('Price', colnames(featuredMatches))
   priceFeatures <- featuredMatches[, priceColIndexes]

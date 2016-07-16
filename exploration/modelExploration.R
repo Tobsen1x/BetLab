@@ -1,3 +1,58 @@
+tlabels <- as.numeric(features$matchResult) - 1
+xgbtrain <- xgb.DMatrix(data.matrix(features[, -c(1)]), label=tlabels, missing=NA)
+
+tlabels[1:5]
+features$matchResult[1:5]
+probs[1:5,]
+str(xgbtrain)
+set.seed(seed)
+xgbModel <- xgboost(data = xgbtrain, 
+                    eta = actGrid$eta, 
+                    gamma = actGrid$gamma, 
+                    max_depth = actGrid$max_depth, 
+                    min_child_weight = actGrid$min_child_weight, 
+                    nrounds = actGrid$nrounds,
+                    colsample_bytree = actGrid$colsample_bytree,
+                    #######TODO Integrate#########
+                    subsample = actGrid$subsample,
+                    scale_pos_weight = actGrid$scale_pos_weight,
+                    lambda = actGrid$lambda,
+                    alpha = actGrid$alpha,
+                    # Other
+                    eval_metric = "merror",
+                    objective = "multi:softprob",
+                    num_class = 3,
+                    silent = 0)
+summary(xgbModel)
+
+View(testFeatures)
+testFeatures <- selectFeatures(test)
+pred <- predict(xgbModel, data.matrix(testFeatures[, -1]))
+probs <- matrix(pred, ncol=3, byrow = T)
+
+predictFrame <- data.frame(probs)
+colnames(predictFrame) <- levels(features$matchResult)
+predictFrame[1,]
+
+# Explore Predictions
+# Avg
+apply(as.matrix(predictFrame), 2, FUN = function(x) {
+  sum(x) / length(x)
+})
+
+
+model <- xgb.dump(xgbModel, with.stats = T)
+model[1:10]
+
+# Get the feature real names
+names <- dimnames(data.matrix(features[,-1]))[[2]]
+# Compute feature importance matrix
+importance_matrix <- xgb.importance(names, model = xgbModel)
+# Nice graph
+library(Ckmeans.1d.dp)
+xgb.plot.importance(importance_matrix[1:10,])
+
+
 data <- readRDS(file = 'data/BL1_2005-2015.Rds')
 odds <- data$odds
 ### Load featured matches ###

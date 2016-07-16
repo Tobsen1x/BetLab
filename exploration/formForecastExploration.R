@@ -10,8 +10,21 @@ matches <- data$matches
 #saveRDS(formEnrichedStats, file="data/formEnriched/111.Rds")
 ###
 
-formEnrichedStats <- readRDS(file="data/formEnriched/222_SBI-0.25_SNPI-0.4_PD60")
+formEnrichedStats <- readRDS(file="data/formEnriched/BL12015-2016_34_122_SBI-0.1_SNPI-0.2_PD60_LFI-0.4.Rds")
 describe(select(formEnrichedStats, formForecast, purgedGrade))
+
+lastImputeStats <- filter(formEnrichedStats, !is.na(purgedGrade), formForecast == -0.4)
+# Percent of Stats imputed by lastFormImpute
+nrow(lastImputeStats) / nrow(filter(formEnrichedStats, !is.na(purgedGrade)))
+# mean of purgedGrade
+mean(lastImputeStats$purgedGrade)
+
+benchPlayedStats <- filter(formEnrichedStats, !is.na(purgedGrade), formForecast == -0.1, playerAssignment == 'EINGEWECHSELT')
+# Percent of Stats imputed by staticBenchImpute
+as.numeric(nrow(benchPlayedStats)) / as.numeric(nrow(filter(formEnrichedStats, !is.na(purgedGrade))))
+# mean of purgedGrade
+mean(benchPlayedStats$purgedGrade)
+
 
 ### Explore differences in formForecast and grade
 naFilteredStats <- filter(formEnrichedStats, !is.na(formForecast), !is.na(purgedGrade))

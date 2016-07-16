@@ -1,7 +1,40 @@
+readInterfaceProperties <- function() {
+  props <- read.properties('C:/RStudioWorkspace/BetLab/interface/interfaceConfig.properties', 
+                           fields = NULL, encoding = "UTF-8")
+  props$tuning.minPercProfitToPersist <- as.numeric(props$tuning.minPercProfitToPersist)
+  props$data.fitPriceImpute <- as.numeric(props$data.fitPriceImpute)
+  props$seed <- as.integer(props$seed)
+  props$adjGrade.cv <- as.integer(props$adjGrade.cv)
+  props$form.weeksBeforeLastPriceDate <- as.integer(props$form.weeksBeforeLastPriceDate)
+  props$featuredMatches.staticPriceImpute <- as.integer(props$featuredMatches.staticPriceImpute)
+  props$featuredMatches.staticFormImpute <- as.numeric(props$featuredMatches.staticFormImpute)
+  props$featuredInteract.priceImpute <- as.integer(props$featuredInteract.priceImpute)
+  return(props)
+}
+
+getAllSeasons <- function(firstSeason, lastSeason) {
+  allSeasons <- vector(mode = 'character')
+  aktSeason <- firstSeason
+  repeat {
+    allSeasons <- append(allSeasons, aktSeason)
+    # Increase season
+    from <- as.integer(substr(aktSeason,1,4))
+    to <- as.integer(substr(aktSeason,6,9))
+    aktSeason <- paste(from+1, to+1, sep = '-')
+    
+    if(aktSeason == lastSeason) {
+      allSeasons <- append(allSeasons, aktSeason)
+      break
+    }
+  }
+  return(allSeasons)
+}
+
 extractFeatureConfig <- function(grid) {
-  config <- list('version' = unique(grid$version), 'staticBenchImpute' = unique(grid$staticBenchImpute),
+  config <- list('id' = unique(grid$featureId), 'version' = unique(grid$version), 'staticBenchImpute' = unique(grid$staticBenchImpute),
                  'staticNotPlayedImpute' = unique(grid$staticNotPlayedImpute), 'pastDays' = unique(grid$pastDays),
-                 'lastFormImpute' = unique(grid$lastFormImpute), 'featureSelection' = unique(grid$featureSelection))
+                 'lastFormImpute' = unique(grid$lastFormImpute), 'featureSelection' = unique(grid$featureSelection),
+                 'league' = unique(grid$league), 'season' = unique(grid$season), 'matchday' = unique(grid$matchday))
   return(config)
 }
 
@@ -11,7 +44,11 @@ extractXGBoostGrid <- function(profileData) {
                       eta = unique(as.numeric(profileData$eta)),
                       gamma = unique(as.numeric(profileData$gamma)),
                       colsample_bytree = unique(as.numeric(profileData$colsample)),
-                      min_child_weight = unique(as.integer(profileData$minChildWeight)))
+                      min_child_weight = unique(as.integer(profileData$minChildWeight)),
+                      lambda = unique(as.numeric(profileData$lambda)),
+                      alpha = unique(as.numeric(profileData$alpha)),
+                      subsample = unique(as.numeric(profileData$subsample)),
+                      scale_pos_weight = unique(as.numeric(profileData$scalePosWeight)))
   return(grid)
 }
 
@@ -28,7 +65,10 @@ extractFeaturedMatchesFileName <- function(props) {
 }
 
 extractFormFileName <- function(props) {
-  fileName <- as.character(props$version)
+  fileName <- as.character(props$league)
+  fileName <- paste(fileName, as.character(props$season), sep = '')
+  fileName <- paste(fileName, as.character(props$matchday), sep = '_')
+  fileName <- paste(fileName, as.character(props$version), sep = '_')
   if(length(props$staticBenchImpute) == 1) {
     fileName <- paste(fileName, '_SBI', props$staticBenchImpute, sep = '')
   }
@@ -37,6 +77,9 @@ extractFormFileName <- function(props) {
   }
   if(length(props$pastDays) == 1) {
     fileName <- paste(fileName, '_PD', props$pastDays, sep = '')
+  }
+  if(length(props$lastFormImpute) == 1) {
+    fileName <- paste(fileName, '_LFI', props$lastFormImpute, sep = '')
   }
   return(fileName)
 }
@@ -68,59 +111,4 @@ extractGridsFromProperties <- function(props) {
   }
   
   return(allConfigs)
-}
-
-typeProperties <- function(props) {
-  if(length(props$seed) > 0) {
-    props$seed <- as.integer(props$seed)
-  }
-  if(length(props$staticBenchImpute) > 0) {
-    props$staticBenchImpute <- as.numeric(props$staticBenchImpute)
-  }
-  if(length(props$staticNotPlayedImpute) > 0) {
-    props$staticNotPlayedImpute <- as.numeric(props$staticNotPlayedImpute)
-  }
-  if(length(props$pastDays) > 0) {
-    props$pastDays <- as.integer(props$pastDays)
-  }
-  if(length(props$lastFormImpute) > 0) {
-    props$lastFormImpute <- as.numeric(props$lastFormImpute)
-  }
-  if(length(props$cv) > 0) {
-    props$cv <- as.integer(props$cv)
-  }
-  return(props)
-}
-
-initScripting <- function() {
-  cat("Loading necessary packages...\n")
-  suppressMessages(library(ggplot2))
-  suppressMessages(library(vioplot))
-  suppressMessages(library(corrplot))
-  suppressMessages(library(polycor))
-  suppressMessages(library(RMySQL))
-  suppressMessages(library(caret))
-  suppressMessages(library(tidyr))
-  suppressMessages(library(properties))
-  suppressMessages(library(e1071))
-  suppressMessages(library(pROC))
-  suppressMessages(library(gridExtra))
-  suppressMessages(library(magrittr))
-  suppressMessages(library(MASS))
-  suppressMessages(library(gbm))
-  suppressMessages(library(bnclassify))
-  suppressMessages(library(C50))
-  suppressMessages(library(kernlab))
-  suppressMessages(library(xgboost))
-  suppressMessages(library(testthat))
-  suppressMessages(library(Hmisc))
-  suppressMessages(library(data.table))
-  suppressMessages(library(plyr))
-  suppressMessages(library(dplyr))
-  cat("Packages loaded.\n\n")
-  
-  # Logging
-  suppressMessages(library(logging))
-  basicConfig()
-  loginfo('Logging initialized.')
 }
